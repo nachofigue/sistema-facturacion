@@ -6,3 +6,4 @@ cryptography
 reportlab
 qrcode
 pillow
+pypdf
