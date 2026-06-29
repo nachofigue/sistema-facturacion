@@ -1,0 +1,19 @@
+# Entorno de Python y Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Variables de entorno
+.env
+
+# Archivos temporales de la app
+ta_cache.json
+
+# Credenciales de ARCA/AFIP (¡NUNCA SUBIR ESTO!)
+MiClaveDeArcaNachoFigue10
+certificado.txt
+MiPedidoCSR
+
+# Carpetas de datos locales
+Facturas_Emitidas/

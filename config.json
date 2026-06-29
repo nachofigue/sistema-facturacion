@@ -1,0 +1,19 @@
+[
+  {"codigo_arca": "105M", "nombre": "105 MIXTA", "precio": 1750.0},
+  {"codigo_arca": "105S", "nombre": "105 SIMPLE", "precio": 1750.0},
+  {"codigo_arca": "104M", "nombre": "104 MIXTA", "precio": 1450.0},
+  {"codigo_arca": "104S", "nombre": "104 SIMPLE", "precio": 1450.0},
+  {"codigo_arca": "ZAN", "nombre": "ZANAHORIA", "precio": 1450.0},
+  {"codigo_arca": "PGRAN", "nombre": "PAPA GRANDE", "precio": 2800.0},
+  {"codigo_arca": "PCHIC", "nombre": "PAPA CHICA", "precio": 1800.0},
+  {"codigo_arca": "ACE", "nombre": "ACELGA", "precio": 1800.0},
+  {"codigo_arca": "ESP", "nombre": "ESPINACA", "precio": 1800.0},
+  {"codigo_arca": "SOP", "nombre": "SOPITAS", "precio": 2000.0},
+  {"codigo_arca": "VVAR", "nombre": "VERDURAS VARIAS", "precio": 1900.0},
+  {"codigo_arca": "PUC", "nombre": "PUCHERO", "precio": 2000.0},
+  {"codigo_arca": "PRO", "nombre": "PROVENZAL", "precio": 2000.0},
+  {"codigo_arca": "CEB", "nombre": "CEBOLLA", "precio": 4400.0},
+  {"codigo_arca": "PCHRB", "nombre": "PAPA C/H/R/B", "precio": 4000.0},
+  {"codigo_arca": "PNOI", "nombre": "PAPA NOISETTE", "precio": 5600.0},
+  {"codigo_arca": "ZANKG", "nombre": "ZANAHORIA (por kg)", "precio": 5000.0}
+]
