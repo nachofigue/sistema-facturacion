@@ -96,7 +96,7 @@ def generar_factura(datos_remito, update_log_callback=None):
             return False
             
         siguiente_nro = res_ultimo.CbteNro + 1
-        log(f"Próxima factura a emitir: {punto_venta:04d}-{siguiente_nro:08d}", update_log_callback)
+        log(f"Próxima factura a emitir: {punto_venta:05d}-{siguiente_nro:08d}", update_log_callback)
         
         # Armar comprobante
         # Para AFIP, la fecha de emisión del comprobante siempre debe ser cronológica,
@@ -157,7 +157,7 @@ def generar_factura(datos_remito, update_log_callback=None):
             vto_cae = detalle_res.CAEFchVto
             log("=========================================", update_log_callback)
             log("¡FACTURA APROBADA POR AFIP!", update_log_callback)
-            log(f"Comprobante: {punto_venta:04d}-{siguiente_nro:08d}", update_log_callback)
+            log(f"Comprobante: {punto_venta:05d}-{siguiente_nro:08d}", update_log_callback)
             log(f"CAE: {cae}", update_log_callback)
             log(f"Vencimiento CAE: {vto_cae}", update_log_callback)
             log("=========================================", update_log_callback)
@@ -179,7 +179,7 @@ def generar_factura(datos_remito, update_log_callback=None):
                 facturas_dir = os.path.join(desktop_dir, "facturas", cliente_folder, fecha_carpeta)
                 os.makedirs(facturas_dir, exist_ok=True)
                 
-                pdf_filename = f"Factura_A_{punto_venta:04d}_{siguiente_nro:08d}.pdf"
+                pdf_filename = f"Factura_A_{punto_venta:05d}_{siguiente_nro:08d}.pdf"
                 pdf_path = os.path.join(facturas_dir, pdf_filename)
                 pdf_generator.generar_pdf_factura(datos_remito, cae, vto_cae, siguiente_nro, pdf_path)
                 

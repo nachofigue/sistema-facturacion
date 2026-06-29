@@ -201,7 +201,10 @@ def generar_pdf_factura(datos_factura, cae, vto_cae, nro_comprobante, output_pat
             c.drawString(cx[1] + 5, y_row, p.get("nombre", "").lower())
             
             c.drawRightString(cx[3] - 5, y_row, fmt(p["cantidad"]))
-            c.drawCentredString((cx[3]+cx[4])/2, y_row, "unidades")
+            if p.get("es_kg", False):
+                c.drawCentredString((cx[3]+cx[4])/2, y_row, "kilogramos")
+            else:
+                c.drawCentredString((cx[3]+cx[4])/2, y_row, "unidades")
             c.drawRightString(cx[5] - 5, y_row, fmt(p["precio"]))
             c.drawRightString(cx[6] - 5, y_row, fmt(bonif_pct))
             c.drawRightString(cx[7] - 5, y_row, fmt(subtotal_neto))

@@ -95,44 +95,67 @@ class FacturaApp(ctk.CTk):
         
         # Fecha del Remito
         ctk.CTkLabel(self.frame_general, text="Fecha del Remito (DD/MM/AAAA)").pack(anchor="w", padx=20)
-        self.entry_fecha = ctk.CTkEntry(self.frame_general, placeholder_text="DD/MM/AAAA")
+        self.entry_fecha = ctk.CTkEntry(self.frame_general, placeholder_text="DD/MM/AAAA", border_width=2, border_color="#565656")
         self.entry_fecha.pack(fill="x", padx=20, pady=(0, 15))
-        self.entry_fecha.bind("<Return>", lambda e: self.focus_next_widget(self.entry_orden))
+        self.entry_fecha.bind("<Return>", lambda e: self.focus_next_widget(self.entry_remito))
         self.entry_fecha.bind("<KeyRelease>", self.format_fecha)
+        self.entry_fecha.bind("<FocusIn>", lambda e: self.entry_fecha.configure(border_color="#8ab4f8"))
+        self.entry_fecha.bind("<FocusOut>", lambda e: self.entry_fecha.configure(border_color="#565656"))
 
         # Número de Orden
         ctk.CTkLabel(self.frame_general, text="Número de Orden").pack(anchor="w", padx=20)
-        self.entry_orden = ctk.CTkEntry(self.frame_general, placeholder_text="0001")
+        self.entry_orden = ctk.CTkEntry(self.frame_general, border_width=2, border_color="#565656")
+        self.entry_orden.insert(0, "00001")
+        vcmd_orden = (self.register(self._validate_only_digits), '%P', 5)
+        self.entry_orden.configure(validate='key', validatecommand=vcmd_orden)
         self.entry_orden.pack(fill="x", padx=20, pady=(0, 15))
         self.entry_orden.bind("<Return>", lambda e: self.focus_next_widget(self.entry_remito))
+        self.entry_orden.bind("<Shift-Return>", lambda e: self.focus_next_widget(self.entry_fecha))
+        self.entry_orden.bind("<FocusIn>", lambda e: self.entry_orden.configure(border_color="#8ab4f8"))
+        self.entry_orden.bind("<FocusOut>", lambda e: self.entry_orden.configure(border_color="#565656"))
         
         # Número de Remito
         ctk.CTkLabel(self.frame_general, text="Número de Remito").pack(anchor="w", padx=20)
-        self.entry_remito = ctk.CTkEntry(self.frame_general)
+        self.entry_remito = ctk.CTkEntry(self.frame_general, border_width=2, border_color="#565656")
+        self.entry_remito.insert(0, "0000")
+        vcmd_remito = (self.register(self._validate_remito), '%P')
+        self.entry_remito.configure(validate='key', validatecommand=vcmd_remito)
         self.entry_remito.pack(fill="x", padx=20, pady=(0, 15))
-        self.entry_remito.bind("<Return>", lambda e: self.focus_next_widget(self.combo_cliente))
+        self.entry_remito.bind("<Return>", self.handle_remito_enter)
+        self.entry_remito.bind("<Shift-Return>", lambda e: self.focus_next_widget(self.entry_fecha))
+        self.entry_remito.bind("<FocusIn>", lambda e: self.entry_remito.configure(border_color="#8ab4f8"))
+        self.entry_remito.bind("<FocusOut>", lambda e: self.handle_remito_focus_out(e))
         
         # Cliente (Dropdown)
         ctk.CTkLabel(self.frame_general, text="Cliente").pack(anchor="w", padx=20)
-        self.combo_cliente = ctk.CTkComboBox(self.frame_general, values=["El Tunel S.A.", "Kilbel"])
+        self.combo_cliente = ctk.CTkComboBox(self.frame_general, values=["El Tunel S.A.", "Kilbel"], border_width=2, border_color="#565656")
         self.combo_cliente.pack(fill="x", padx=20, pady=(0, 15))
         # Bindear Enter en el combobox para autocompletar 'k' y 't'
         if hasattr(self.combo_cliente, "_entry"):
-            self.combo_cliente._entry.bind("<Return>", self.handle_cliente_enter)
+            c_entry = self.combo_cliente._entry
+            c_entry.bind("<Return>", self.handle_cliente_enter)
+            c_entry.bind("<Shift-Return>", lambda e: self.focus_next_widget(self.entry_remito))
+            c_entry.configure(highlightthickness=2, highlightbackground="#565656", highlightcolor="#8ab4f8")
+            vcmd_nodig = (self.register(self._validate_no_digits), '%P')
+            c_entry.configure(validate='key', validatecommand=vcmd_nodig)
         else:
             self.combo_cliente.bind("<Return>", self.handle_cliente_enter)
+            vcmd_nodig = (self.register(self._validate_no_digits), '%P')
+            self.combo_cliente.configure(validate='key', validatecommand=vcmd_nodig)
         
         
         # Sucursal
         ctk.CTkLabel(self.frame_general, text="Sucursal del Supermercado").pack(anchor="w", padx=20)
-        self.entry_sucursal = ctk.CTkEntry(self.frame_general)
+        self.entry_sucursal = ctk.CTkEntry(self.frame_general, border_width=2, border_color="#565656")
         self.entry_sucursal.pack(fill="x", padx=20, pady=(0, 5))
         
         self.label_sucursal_match = ctk.CTkLabel(self.frame_general, text="", text_color="gray", font=ctk.CTkFont(size=12))
         self.label_sucursal_match.pack(anchor="w", padx=20, pady=(0, 15))
         self.entry_sucursal.bind("<KeyRelease>", self.on_sucursal_type)
+        self.entry_sucursal.bind("<Shift-Return>", lambda e: self.focus_next_widget(self.combo_cliente))
+        self.entry_sucursal.bind("<FocusIn>", lambda e: self.entry_sucursal.configure(border_color="#8ab4f8"))
+        self.entry_sucursal.bind("<FocusOut>", lambda e: self.entry_sucursal.configure(border_color="#565656"))
         
-        self.entry_remito.insert(0, "") 
         self.combo_cliente.set("")
         self.entry_sucursal.insert(0, "")
         
@@ -145,14 +168,27 @@ class FacturaApp(ctk.CTk):
             # Crear los widgets primero
             for index, prod in enumerate(self.productos_config):
                 ctk.CTkLabel(self.frame_productos, text=prod["nombre"].upper()).pack(anchor="w", padx=10, pady=(10, 0))
-                entry = ctk.CTkEntry(self.frame_productos, placeholder_text="0")
+                entry = ctk.CTkEntry(self.frame_productos, placeholder_text="0", border_width=2, border_color="#565656")
                 if index == 0:
                     entry.insert(0, "1") # DATO DE PRUEBA
+                vcmd_qty = (self.register(self._validate_product_qty), '%P')
+                entry.configure(validate='key', validatecommand=vcmd_qty)
                 entry.pack(fill="x", padx=10, pady=(0, 5))
+                entry.bind("<FocusIn>", lambda e, ent=entry: ent.configure(border_color="#8ab4f8"))
+                entry.bind("<FocusOut>", lambda e, ent=entry: ent.configure(border_color="#565656"))
                 self.product_entries.append({
                     "data": prod,
                     "widget": entry
                 })
+                
+                # Separador visual para productos por kg
+                if prod["codigo_arca"] == "PRO":
+                    sep = ctk.CTkFrame(self.frame_productos, height=20, fg_color="transparent")
+                    sep.pack(fill="x", padx=10, pady=(10, 0))
+                    sep.pack_propagate(False)
+                    ctk.CTkFrame(sep, height=2, fg_color="#555555").place(relx=0, rely=0.5, relwidth=0.42, anchor="w")
+                    ctk.CTkLabel(sep, text="Kg", font=ctk.CTkFont(size=14, weight="bold"), text_color="gray").place(relx=0.5, rely=0.5, anchor="center")
+                    ctk.CTkFrame(sep, height=2, fg_color="#555555").place(relx=1, rely=0.5, relwidth=0.42, anchor="e")
             
             self.entry_sucursal.bind("<Return>", lambda e: self.handle_sucursal_enter(e, self.product_entries[0]["widget"]))
             
@@ -165,6 +201,13 @@ class FacturaApp(ctk.CTk):
                     current_entry.bind("<Return>", lambda e, n=next_entry, c=current_entry: self.handle_product_enter(e, c, n))
                 else:
                     current_entry.bind("<Return>", lambda e, c=current_entry: self.handle_product_enter(e, c, self.btn_generar))
+                
+                # Shift+Enter para ir al campo anterior
+                if i > 0:
+                    prev_entry = self.product_entries[i-1]["widget"]
+                    current_entry.bind("<Shift-Return>", lambda e, p=prev_entry: self.handle_product_shift_enter(e, p))
+                else:
+                    current_entry.bind("<Shift-Return>", lambda e: self.handle_product_shift_enter(e, self.entry_sucursal))
         else:
             ctk.CTkLabel(self.frame_productos, text="No se encontraron productos en config.json").pack(pady=20)
             self.entry_sucursal.bind("<Return>", lambda e: self.handle_sucursal_enter(e, self.btn_generar))
@@ -255,6 +298,7 @@ class FacturaApp(ctk.CTk):
         ctk.CTkLabel(top_frame, text="Fecha:").grid(row=0, column=2, padx=(5, 5), pady=5)
         self.combo_archivo_fecha = ctk.CTkComboBox(top_frame, values=[], command=self.on_archivo_fecha_change)
         self.combo_archivo_fecha.grid(row=0, column=3, padx=5, pady=5)
+        self.combo_archivo_fecha.set("")
         self.combo_archivo_fecha.configure(state="disabled")
 
         btn_refresh = ctk.CTkButton(top_frame, text="Refrescar", width=100, command=self.refresh_archivo_tree)
@@ -303,7 +347,7 @@ class FacturaApp(ctk.CTk):
         self.btn_abrir_excel = ctk.CTkButton(btn_frame, text="Abrir Excel", command=self.abrir_excel_facturas, state="disabled")
         self.btn_abrir_excel.pack(side="left", padx=10)
 
-        self.btn_listar_precios = ctk.CTkButton(btn_frame, text="Listar Precios", command=self.listar_precios_carpeta, state="disabled")
+        self.btn_listar_precios = ctk.CTkButton(btn_frame, text="Listar Totales", command=self.listar_precios_carpeta, state="disabled")
         self.btn_listar_precios.pack(side="left", padx=10)
 
         self.btn_copiar_nros = ctk.CTkButton(btn_frame, text="Copiar Nro de Comprobante", command=self.copiar_nros_comprobante, state="disabled", fg_color="#2e7d32", hover_color="#1b5e20")
@@ -461,7 +505,7 @@ class FacturaApp(ctk.CTk):
                     ruta_pdf = os.path.join(ruta_fecha, pdf)
                     size = os.path.getsize(ruta_pdf)
                     size_str = f"{size / 1024:.1f} KB" if size < 1024 * 1024 else f"{size / (1024*1024):.1f} MB"
-                    nro = pdf.replace("Factura_A_0001_", "").replace(".pdf", "")
+                    nro = pdf.replace("Factura_A_00001_", "").replace("Factura_A_0001_", "").replace(".pdf", "")
                     total = self._extraer_total_pdf(ruta_pdf)
                     total_str = f"${total:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if total else ""
                     items_planos.append((nro, etiqueta, pdf, size_str, total_str, ruta_pdf))
@@ -513,9 +557,9 @@ class FacturaApp(ctk.CTk):
                 pdfs = [f for f in os.listdir(ruta_fecha) if f.lower().endswith(".pdf")]
 
                 if orden == "Nro Mayor a Menor":
-                    pdfs.sort(key=lambda x: int(x.replace("Factura_A_0001_", "").replace(".pdf", "")), reverse=True)
+                    pdfs.sort(key=lambda x: int(x.replace("Factura_A_00001_", "").replace("Factura_A_0001_", "").replace(".pdf", "")), reverse=True)
                 elif orden == "Nro Menor a Mayor":
-                    pdfs.sort(key=lambda x: int(x.replace("Factura_A_0001_", "").replace(".pdf", "")))
+                    pdfs.sort(key=lambda x: int(x.replace("Factura_A_00001_", "").replace("Factura_A_0001_", "").replace(".pdf", "")))
 
                 if not pdfs:
                     self.archivo_tree.insert(fecha_id, "end", text="(sin archivos)")
@@ -634,7 +678,7 @@ class FacturaApp(ctk.CTk):
 
         # Quitar hijos previos del "Listar Precios" si existen
         for child in self.archivo_tree.get_children(fecha_id):
-            if self.archivo_tree.item(child, "text") == "--- Precios ---":
+            if self.archivo_tree.item(child, "text") == "--- Totales ---":
                 self.archivo_tree.delete(child)
 
         pdfs = sorted([f for f in os.listdir(ruta) if f.lower().endswith(".pdf")])
@@ -642,7 +686,7 @@ class FacturaApp(ctk.CTk):
             self.log_message("No hay PDFs en la carpeta seleccionada.")
             return
 
-        precios_id = self.archivo_tree.insert(fecha_id, "end", text="          --- Precios ---", open=True)
+        precios_id = self.archivo_tree.insert(fecha_id, "end", text="          --- Totales ---", open=True)
         self._datos_precios = []
         for pdf in pdfs:
             total = self._extraer_total_pdf(os.path.join(ruta, pdf))
@@ -650,8 +694,8 @@ class FacturaApp(ctk.CTk):
                 total_str = f"${total:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
             else:
                 total_str = "N/A"
-            nombre_corto = pdf.replace("Factura_A_0001_", "").replace(".pdf", "")
-            nro = pdf.replace("Factura_A_0001_", "").replace(".pdf", "")
+            nombre_corto = pdf.replace("Factura_A_00001_", "").replace("Factura_A_0001_", "").replace(".pdf", "")
+            nro = pdf.replace("Factura_A_00001_", "").replace("Factura_A_0001_", "").replace(".pdf", "")
             self._datos_precios.append({"nro": nro, "total": total, "total_str": total_str})
             self.archivo_tree.insert(precios_id, "end", text=f"     {nro}  →  {total_str}")
 
@@ -886,18 +930,24 @@ class FacturaApp(ctk.CTk):
             self.entry_sucursal.delete(0, "end")
             self.entry_sucursal.insert(0, self.current_sucursal_matches[0])
             self.label_sucursal_match.configure(text="")
-            
-        self.focus_next_widget(next_widget)
+            self.focus_next_widget(next_widget)
+        else:
+            self.log_message("Debés seleccionar una sucursal válida de las sugeridas.")
         return "break"
 
     def handle_cliente_enter(self, event):
-        val = self.combo_cliente.get().strip().lower()
-        if val == "k":
+        val = self.combo_cliente.get().strip()
+        if val == "k" or val == "K":
             self.combo_cliente.set("Kilbel")
-        elif val == "t":
+            val = "Kilbel"
+        elif val == "t" or val == "T":
             self.combo_cliente.set("El Tunel S.A.")
+            val = "El Tunel S.A."
             
-        self.focus_next_widget(self.entry_sucursal)
+        if val in ("Kilbel", "El Tunel S.A."):
+            self.focus_next_widget(self.entry_sucursal)
+        else:
+            self.log_message("Debés seleccionar 'Kilbel' o 'El Tunel S.A.' como cliente.")
         return "break"
     def handle_product_enter(self, event, current_widget, next_widget):
         val = current_widget.get().strip()
@@ -905,6 +955,10 @@ class FacturaApp(ctk.CTk):
             current_widget.insert(0, "0")
         
         self.focus_next_widget(next_widget)
+        return "break"
+    
+    def handle_product_shift_enter(self, event, prev_widget):
+        self.focus_next_widget(prev_widget)
         return "break"
 
     def format_fecha(self, event):
@@ -919,6 +973,52 @@ class FacturaApp(ctk.CTk):
             formateado += c
         self.entry_fecha.delete(0, "end")
         self.entry_fecha.insert(0, formateado)
+
+    def _validate_only_digits(self, proposed, max_len):
+        if proposed == "":
+            return True
+        if not proposed.isdigit():
+            return False
+        if len(proposed) > int(max_len):
+            return False
+        return True
+
+    def _validate_remito(self, proposed):
+        if not proposed.isdigit():
+            return False
+        if len(proposed) > 8:
+            return False
+        if len(proposed) >= 4 and proposed[:4] != "0000":
+            return False
+        if len(proposed) < 4:
+            return False
+        return True
+
+    def _validate_no_digits(self, proposed):
+        if proposed == "":
+            return True
+        return not any(c.isdigit() for c in proposed)
+
+    def _validate_product_qty(self, proposed):
+        if proposed == "":
+            return True
+        return all(c.isdigit() or c == ',' for c in proposed)
+
+    def handle_remito_enter(self, event):
+        val = self.entry_remito.get().strip()
+        if len(val) != 8:
+            self.log_message(f"El remito debe tener 8 dígitos (actual: {len(val)})")
+            return "break"
+        self.focus_next_widget(self.combo_cliente)
+        return "break"
+
+    def handle_remito_focus_out(self, event):
+        self.entry_remito.configure(border_color="#565656")
+        if getattr(self, '_limpiando', False):
+            return
+        val = self.entry_remito.get().strip()
+        if len(val) > 0 and len(val) < 8:
+            self.entry_remito.focus_set()
 
     def log_message(self, message):
         self.textbox_log.configure(state="normal")
@@ -943,18 +1043,25 @@ class FacturaApp(ctk.CTk):
             "productos": []
         }
         
-        for p in self.product_entries:
+        provenzal_idx = next((i for i, p in enumerate(self.product_entries) if p["data"]["codigo_arca"] == "PRO"), -1)
+
+        for idx, p in enumerate(self.product_entries):
             val = p["widget"].get().strip()
             # Si está vacío o es 0, lo ignoramos para la factura real
             if val == "": val = "0"
             try:
-                cantidad = int(val)
+                es_kg = idx > provenzal_idx
+                if es_kg:
+                    cantidad = float(val.replace(",", "."))
+                else:
+                    cantidad = int(val)
                 if cantidad > 0:
                     datos["productos"].append({
                         "nombre": p["data"]["nombre"],
                         "codigo_arca": p["data"]["codigo_arca"],
                         "precio": p["data"]["precio"],
-                        "cantidad": cantidad
+                        "cantidad": cantidad,
+                        "es_kg": es_kg
                     })
             except ValueError:
                 self.log_message(f"Valor inválido en cantidad de {p['data']['nombre']}: {val}")
@@ -962,29 +1069,35 @@ class FacturaApp(ctk.CTk):
         return datos
 
     def on_generar_click(self):
-        # Deshabilitar botón para evitar dobles clicks
+        if getattr(self, '_generating', False):
+            return
+        self._generating = True
         self.btn_generar.configure(state="disabled")
         datos = self.get_data()
         
         if not datos["fecha"]:
             self.log_message("Error: La fecha del remito es obligatoria.")
+            self._generating = False
             self.btn_generar.configure(state="normal")
             self.entry_fecha.focus_set()
             return
             
-        if not datos["remito"]:
-            self.log_message("Error: El número de remito es obligatorio.")
+        if len(datos["remito"]) != 8:
+            self.log_message("Error: El número de remito debe tener 8 dígitos.")
+            self._generating = False
             self.btn_generar.configure(state="normal")
             self.entry_remito.focus_set()
             return
             
         if not datos["cuit_cliente"] or len(datos["cuit_cliente"]) != 11:
             self.log_message("Error: El CUIT del cliente debe tener 11 dígitos.")
+            self._generating = False
             self.btn_generar.configure(state="normal")
             return
             
         if not datos["productos"]:
             self.log_message("Error: Debes cargar al menos un producto mayor a 0.")
+            self._generating = False
             self.btn_generar.configure(state="normal")
             return
             
@@ -1006,16 +1119,21 @@ class FacturaApp(ctk.CTk):
         else:
             self.log_message("Proceso finalizado con errores.")
         
-        # Rehabilitar botón en el hilo principal
+        # Rehabilitar botón y resetear flag en el hilo principal
         self.after(0, lambda: self.btn_generar.configure(state="normal"))
+        self.after(0, lambda: setattr(self, '_generating', False))
         
     def limpiar_campos(self):
+        self._limpiando = True
         # Autoincrementar remito
         remito_actual = self.entry_remito.get().strip()
         if remito_actual.isdigit():
             siguiente = str(int(remito_actual) + 1).zfill(len(remito_actual))
+            self.entry_remito.configure(validate='none')
             self.entry_remito.delete(0, 'end')
             self.entry_remito.insert(0, siguiente)
+            self.entry_remito.configure(validate='key', validatecommand=(self.register(self._validate_remito), '%P'))
+            self.log_message(f"Remito auto-incrementado: {remito_actual} → {siguiente}")
         else:
             self.entry_remito.delete(0, 'end')
             
@@ -1030,4 +1148,5 @@ class FacturaApp(ctk.CTk):
         if hasattr(self.combo_cliente, "_entry"):
             self.combo_cliente._entry.focus_set()
             
+        self._limpiando = False
         self.log_message("Campos preparados para el siguiente remito.")
