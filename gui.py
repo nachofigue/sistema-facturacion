@@ -2,6 +2,11 @@ import customtkinter as ctk
 import json
 import os
 import threading
+import tkinter as tk
+from tkinter import ttk
+import shutil
+import csv
+from datetime import datetime
 
 class FacturaApp(ctk.CTk):
     def __init__(self, start_bot_callback):
@@ -76,6 +81,7 @@ class FacturaApp(ctk.CTk):
         
         self.tab_facturacion = self.tabview.add("Facturación")
         self.tab_precios = self.tabview.add("Precios de Productos")
+        self.tab_archivo = self.tabview.add("Archivo de Comprobantes")
         
         self.tab_facturacion.grid_columnconfigure(0, weight=1)
         self.tab_facturacion.grid_columnconfigure(1, weight=1)
@@ -92,6 +98,7 @@ class FacturaApp(ctk.CTk):
         self.entry_fecha = ctk.CTkEntry(self.frame_general, placeholder_text="DD/MM/AAAA")
         self.entry_fecha.pack(fill="x", padx=20, pady=(0, 15))
         self.entry_fecha.bind("<Return>", lambda e: self.focus_next_widget(self.entry_orden))
+        self.entry_fecha.bind("<KeyRelease>", self.format_fecha)
 
         # Número de Orden
         ctk.CTkLabel(self.frame_general, text="Número de Orden").pack(anchor="w", padx=20)
@@ -179,6 +186,7 @@ class FacturaApp(ctk.CTk):
         self.log_message("Sistema iniciado. Presiona 'Enter' para navegar entre campos.")
         
         self.setup_precios_tab()
+        self.setup_archivo_tab()
         
         self.console_visible = True
         self.btn_toggle_console = ctk.CTkButton(self, text="Ocultar Consola", width=120, height=28, command=self.toggle_console)
@@ -219,7 +227,214 @@ class FacturaApp(ctk.CTk):
                 self.precio_entries.append({"data": prod, "widget": entry})
                 
         self.btn_guardar_precios = ctk.CTkButton(self.tab_precios, text="Guardar Cambios", command=self.guardar_precios)
-        self.btn_guardar_precios.grid(row=1, column=0, pady=10)
+        self.btn_guardar_precios.grid(row=1, column=0, pady=10, padx=(0, 10))
+
+        self.btn_pdf_precios = ctk.CTkButton(self.tab_precios, text="Generar PDF de Precios", command=self.generar_pdf_precios)
+        self.btn_pdf_precios.grid(row=1, column=1, pady=10, padx=(10, 0))
+
+    def setup_archivo_tab(self):
+        self.tab_archivo.grid_columnconfigure(0, weight=1)
+        self.tab_archivo.grid_rowconfigure(0, weight=1)
+
+        main_frame = ctk.CTkFrame(self.tab_archivo)
+        main_frame.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+        main_frame.grid_columnconfigure(0, weight=1)
+        main_frame.grid_rowconfigure(1, weight=1)
+
+        # --- Top bar: cliente + fecha ---
+        top_frame = ctk.CTkFrame(main_frame)
+        top_frame.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
+        top_frame.grid_columnconfigure(2, weight=1)
+
+        ctk.CTkLabel(top_frame, text="Cliente:").grid(row=0, column=0, padx=5, pady=5)
+        self.combo_archivo_cliente = ctk.CTkComboBox(top_frame, values=["El Tunel S.A.", "Kilbel"], command=self.on_archivo_cliente_change)
+        self.combo_archivo_cliente.grid(row=0, column=1, padx=5, pady=5)
+
+        ctk.CTkLabel(top_frame, text="Fecha:").grid(row=0, column=2, padx=(20, 5), pady=5)
+        self.combo_archivo_fecha = ctk.CTkComboBox(top_frame, values=[], command=self.on_archivo_fecha_change)
+        self.combo_archivo_fecha.grid(row=0, column=3, padx=5, pady=5)
+        self.combo_archivo_fecha.configure(state="disabled")
+
+        btn_refresh = ctk.CTkButton(top_frame, text="Refrescar", width=100, command=self.refresh_archivo_tree)
+        btn_refresh.grid(row=0, column=4, padx=(20, 5), pady=5)
+
+        # --- Treeview ---
+        tree_frame = ctk.CTkFrame(main_frame)
+        tree_frame.grid(row=1, column=0, padx=10, pady=5, sticky="nsew")
+        tree_frame.grid_rowconfigure(0, weight=1)
+        tree_frame.grid_columnconfigure(0, weight=1)
+
+        style = ttk.Style()
+        style.theme_use("clam")
+        style.configure("Treeview", background="#2b2b2b", foreground="white", fieldbackground="#2b2b2b", rowheight=25)
+        style.configure("Treeview.Heading", background="#1f1f1f", foreground="white")
+
+        self.archivo_tree = ttk.Treeview(tree_frame, columns=("size",), show="tree", selectmode="browse")
+        self.archivo_tree.grid(row=0, column=0, sticky="nsew")
+        self.archivo_tree.column("#0", width=500)
+        self.archivo_tree.column("size", width=100, anchor="e")
+        self.archivo_tree.heading("#0", text="Nombre")
+        self.archivo_tree.heading("size", text="Tamaño")
+
+        scroll_tree = ttk.Scrollbar(tree_frame, orient="vertical", command=self.archivo_tree.yview)
+        scroll_tree.grid(row=0, column=1, sticky="ns")
+        self.archivo_tree.configure(yscrollcommand=scroll_tree.set)
+        self.archivo_tree.bind("<<TreeviewSelect>>", self.on_tree_select)
+
+        # --- Botones de acción ---
+        btn_frame = ctk.CTkFrame(main_frame)
+        btn_frame.grid(row=2, column=0, padx=10, pady=10, sticky="ew")
+
+        self.btn_copiar_pdfs = ctk.CTkButton(btn_frame, text="Copiar PDFs", command=self.copiar_pdfs_seleccionados, state="disabled")
+        self.btn_copiar_pdfs.pack(side="left", padx=10)
+
+        self.btn_abrir_excel = ctk.CTkButton(btn_frame, text="Abrir Excel", command=self.abrir_excel_facturas, state="disabled")
+        self.btn_abrir_excel.pack(side="left", padx=10)
+
+        # Inicializar el tree con lo que haya
+        self.refresh_archivo_tree()
+
+    def on_archivo_cliente_change(self, choice):
+        self.combo_archivo_fecha.configure(values=[])
+        self.combo_archivo_fecha.set("")
+        self.combo_archivo_fecha.configure(state="disabled")
+        self.btn_copiar_pdfs.configure(state="disabled")
+        self.btn_abrir_excel.configure(state="disabled")
+        self.refresh_archivo_tree()
+
+    def on_archivo_fecha_change(self, choice):
+        self.refresh_archivo_tree()
+
+    def on_tree_select(self, event):
+        self._actualizar_botones()
+
+    def _actualizar_botones(self):
+        ruta = self._get_carpeta_seleccionada()
+        estado = "normal" if ruta else "disabled"
+        self.btn_copiar_pdfs.configure(state=estado)
+        self.btn_abrir_excel.configure(state=estado)
+
+    def refresh_archivo_tree(self):
+        for item in self.archivo_tree.get_children():
+            self.archivo_tree.delete(item)
+
+        desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+        base_path = os.path.join(desktop, "facturas")
+
+        if not os.path.exists(base_path):
+            self.archivo_tree.insert("", "end", text="No hay carpeta 'facturas' en el escritorio", iid="root_info")
+            self.btn_copiar_pdfs.configure(state="disabled")
+            self.btn_abrir_excel.configure(state="disabled")
+            return
+
+        cliente = self.combo_archivo_cliente.get()
+        fecha = self.combo_archivo_fecha.get()
+        hay_fechas = False
+
+        for carpeta_cliente in os.listdir(base_path):
+            ruta_cliente = os.path.join(base_path, carpeta_cliente)
+            if not os.path.isdir(ruta_cliente):
+                continue
+            cliente_id = self.archivo_tree.insert("", "end", text=carpeta_cliente.upper(), open=True)
+
+            # Filtrar por cliente si corresponde
+            cliente_folder = "kilbel" if "kilbel" in carpeta_cliente.lower() else "tunel"
+            if cliente and cliente_folder != ("kilbel" if cliente == "Kilbel" else "tunel"):
+                self.archivo_tree.detach(cliente_id)
+                continue
+
+            fechas_encontradas = []
+            for carpeta_fecha in sorted(os.listdir(ruta_cliente), reverse=True):
+                ruta_fecha = os.path.join(ruta_cliente, carpeta_fecha)
+                if not os.path.isdir(ruta_fecha):
+                    continue
+                fechas_encontradas.append(carpeta_fecha)
+                fecha_id = self.archivo_tree.insert(cliente_id, "end", text=carpeta_fecha, open=False)
+
+                if fecha and carpeta_fecha != fecha:
+                    self.archivo_tree.detach(fecha_id)
+                    continue
+
+                pdfs = [f for f in os.listdir(ruta_fecha) if f.lower().endswith(".pdf")]
+                if not pdfs:
+                    self.archivo_tree.insert(fecha_id, "end", text="(sin archivos)")
+                for pdf in sorted(pdfs):
+                    ruta_pdf = os.path.join(ruta_fecha, pdf)
+                    size = os.path.getsize(ruta_pdf)
+                    size_str = f"{size / 1024:.1f} KB" if size < 1024 * 1024 else f"{size / (1024*1024):.1f} MB"
+                    self.archivo_tree.insert(fecha_id, "end", text=pdf, values=(size_str,))
+
+            # Actualizar combo de fechas
+            if fechas_encontradas:
+                hay_fechas = True
+                self.combo_archivo_fecha.configure(values=fechas_encontradas)
+                self.combo_archivo_fecha.configure(state="normal")
+
+        if not hay_fechas:
+            self.combo_archivo_fecha.configure(values=[])
+            self.combo_archivo_fecha.set("")
+            self.combo_archivo_fecha.configure(state="disabled")
+
+        self._actualizar_botones()
+
+    def _get_carpeta_seleccionada(self):
+        sel = self.archivo_tree.selection()
+        if not sel:
+            return None
+        item = sel[0]
+        padres = []
+        while item:
+            texto = self.archivo_tree.item(item, "text")
+            padres.insert(0, texto)
+            item = self.archivo_tree.parent(item)
+        # Solo activar si se seleccionó la carpeta de fecha (2 niveles: cliente/fecha)
+        if len(padres) != 2:
+            return None
+        cliente_texto = padres[0]
+        fecha_texto = padres[1]
+        if cliente_texto == "TUNEL":
+            cliente_folder = "tunel"
+        elif cliente_texto == "KILBEL":
+            cliente_folder = "kilbel"
+        else:
+            return None
+        ruta = os.path.join(os.path.expanduser("~"), "Desktop", "facturas", cliente_folder, fecha_texto)
+        return ruta if os.path.isdir(ruta) else None
+
+    def copiar_pdfs_seleccionados(self):
+        ruta = self._get_carpeta_seleccionada()
+        if not ruta:
+            return
+        pdfs = [f for f in os.listdir(ruta) if f.lower().endswith(".pdf")]
+        if not pdfs:
+            self.log_message("No hay PDFs en la carpeta seleccionada.")
+            return
+        # Copiar al portapapeles con PowerShell (Get-ChildItem | Set-Clipboard)
+        import subprocess
+        ps_cmd = f'Get-ChildItem -Path "{ruta}" -Filter "*.pdf" | Set-Clipboard'
+        subprocess.run(["powershell", "-Command", ps_cmd], capture_output=True)
+        self.log_message(f"{len(pdfs)} PDF(s) copiados al portapapeles. Presioná Ctrl+V para pegarlos.")
+
+    def abrir_excel_facturas(self):
+        ruta = self._get_carpeta_seleccionada()
+        if not ruta:
+            return
+        fecha_actual = datetime.now().strftime("%Y%m%d_%H%M%S")
+        archivo_csv = os.path.join(os.path.expanduser("~"), "Desktop", f"facturas_{fecha_actual}.csv")
+        pdfs = [f for f in os.listdir(ruta) if f.lower().endswith(".pdf")]
+        if not pdfs:
+            self.log_message("No hay PDFs en la carpeta seleccionada.")
+            return
+        pdfs.sort()
+        with open(archivo_csv, "w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Archivo", "Tamaño (KB)", "Ruta completa"])
+            for pdf in pdfs:
+                ruta_pdf = os.path.join(ruta, pdf)
+                size_kb = round(os.path.getsize(ruta_pdf) / 1024, 2)
+                writer.writerow([pdf, size_kb, ruta_pdf])
+        os.startfile(archivo_csv)
+        self.log_message(f"Excel generado: {archivo_csv}")
 
     def guardar_precios(self):
         import sys
@@ -263,6 +478,69 @@ class FacturaApp(ctk.CTk):
         else:
             self.log_message("Error: No se encontró config.json")
 
+    def generar_pdf_precios(self):
+        from reportlab.lib.pagesizes import A4
+        from reportlab.pdfgen import canvas
+        import datetime, os
+
+        fecha_hoy = datetime.datetime.now()
+        nombre_archivo = f"lista de precios ({fecha_hoy.day:02d}-{fecha_hoy.month:02d}).pdf"
+        desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+        ruta_pdf = os.path.join(desktop, nombre_archivo)
+
+        c = canvas.Canvas(ruta_pdf, pagesize=A4)
+        width, height = A4
+        margin = 30
+        y = height - 50
+
+        c.setFont("Helvetica-Bold", 26)
+        c.drawCentredString(width / 2, y, "SU BANDEJA")
+        y -= 35
+
+        c.setFont("Helvetica-Bold", 18)
+        c.drawCentredString(width / 2, y, "Lista de Precios")
+        y -= 30
+        c.setFont("Helvetica", 10)
+        c.drawCentredString(width / 2, y, fecha_hoy.strftime("%d/%m/%Y"))
+        y -= 40
+
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(margin, y, "Código")
+        c.drawString(margin + 100, y, "Producto")
+        c.drawString(margin + 350, y, "Precio")
+        y -= 20
+
+        c.setFont("Helvetica", 10)
+        for p in self.precio_entries:
+            codigo = p["data"]["codigo_arca"]
+            nombre = p["data"]["nombre"]
+            try:
+                precio = float(p["widget"].get().strip())
+            except ValueError:
+                precio = p["data"]["precio"]
+            precio_str = f"${precio:.2f}".replace('.', ',')
+
+            c.drawString(margin, y, codigo)
+            c.drawString(margin + 100, y, nombre)
+            c.drawString(margin + 350, y, precio_str)
+            y -= 16
+
+            if codigo == "PRO":
+                y -= 8
+                c.line(margin, y, width - margin, y)
+                y -= 16
+                c.setFont("Helvetica-Bold", 10)
+                c.drawCentredString(width / 2, y, "Precio por Kg")
+                y -= 20
+                c.setFont("Helvetica", 10)
+
+            if y < 50:
+                c.showPage()
+                y = height - 50
+
+        c.save()
+        self.log_message(f"PDF de precios generado: {nombre_archivo}")
+
     def focus_next_widget(self, next_widget):
         next_widget.focus_set()
         
@@ -283,6 +561,16 @@ class FacturaApp(ctk.CTk):
                     fraction = target_y / total_height
                     
                     canvas.yview_moveto(fraction)
+            else:
+                self.update_idletasks()
+                canvas = self.frame_general._parent_canvas
+                bbox = canvas.bbox("all")
+                if bbox:
+                    total_height = bbox[3] - bbox[1]
+                    widget_y = next_widget.winfo_y()
+                    if widget_y > 250:
+                        fraction = (widget_y - 100) / total_height
+                        canvas.yview_moveto(fraction)
         except Exception:
             pass
             
@@ -358,6 +646,19 @@ class FacturaApp(ctk.CTk):
         
         self.focus_next_widget(next_widget)
         return "break"
+
+    def format_fecha(self, event):
+        if event.keysym in ("Return", "Tab", "BackSpace", "Delete", "Left", "Right", "Home", "End"):
+            return
+        texto = self.entry_fecha.get()
+        solo_digitos = "".join(c for c in texto if c.isdigit())[:8]
+        formateado = ""
+        for i, c in enumerate(solo_digitos):
+            if i in (2, 4):
+                formateado += "/"
+            formateado += c
+        self.entry_fecha.delete(0, "end")
+        self.entry_fecha.insert(0, formateado)
 
     def log_message(self, message):
         self.textbox_log.configure(state="normal")
