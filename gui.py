@@ -9,10 +9,11 @@ import csv
 from datetime import datetime
 
 class FacturaApp(ctk.CTk):
-    def __init__(self, start_bot_callback):
+    def __init__(self, start_bot_callback, start_nota_credito_callback=None):
         super().__init__()
         
         self.start_bot_callback = start_bot_callback
+        self.start_nota_credito_callback = start_nota_credito_callback
         
         # Configuración de ventana
         self.title("Automatización de Facturas - ARCA")
@@ -375,6 +376,18 @@ class FacturaApp(ctk.CTk):
         self.btn_eliminar_pdf = ctk.CTkButton(btn_frame, text="Eliminar", command=self.eliminar_pdf_seleccionado, state="disabled", fg_color="#c0392b", hover_color="#96281b")
         self.btn_eliminar_pdf.pack(side="left", padx=10)
 
+        sep_frame = ctk.CTkFrame(btn_frame, width=2, fg_color="#555555")
+        sep_frame.pack(side="left", padx=5, fill="y", pady=5)
+
+        self.btn_nota_credito = ctk.CTkButton(
+            btn_frame, text="Generar Nota de Crédito",
+            command=self.on_generar_nota_credito,
+            state="disabled",
+            fg_color="#7D3C98", hover_color="#5B2C6F",
+            font=ctk.CTkFont(size=12, weight="bold")
+        )
+        self.btn_nota_credito.pack(side="left", padx=10)
+
         self._datos_precios = None
 
         # Inicializar el tree con lo que haya
@@ -387,6 +400,7 @@ class FacturaApp(ctk.CTk):
         self.btn_copiar_nros.configure(state="disabled")
         self.btn_copiar_totales.configure(state="disabled")
         self.btn_eliminar_pdf.configure(state="disabled")
+        self.btn_nota_credito.configure(state="disabled")
         self._datos_precios = None
 
     def on_archivo_cliente_change(self, choice):
@@ -470,6 +484,8 @@ class FacturaApp(ctk.CTk):
         self.btn_copiar_totales.configure(state=estado_precios)
         estado_eliminar = "normal" if self._get_pdf_seleccionado() else "disabled"
         self.btn_eliminar_pdf.configure(state=estado_eliminar)
+        estado_nc = "normal" if self._get_pdf_seleccionado() else "disabled"
+        self.btn_nota_credito.configure(state=estado_nc)
 
     def refresh_archivo_tree(self):
         for item in self.archivo_tree.get_children():
@@ -681,6 +697,123 @@ class FacturaApp(ctk.CTk):
         except Exception:
             pass
         return None
+
+    def _extraer_datos_desde_pdf(self, ruta_pdf):
+        import re
+        from pypdf import PdfReader
+        datos = {}
+
+        filename = os.path.basename(ruta_pdf)
+        match = re.search(r'_(\d{5})_(\d{8})\.pdf$', filename)
+        if match:
+            datos["punto_venta_original"] = int(match.group(1))
+            datos["nro_comprobante_original"] = int(match.group(2))
+
+        ruta = os.path.dirname(ruta_pdf)
+        if "kilbel" in ruta.lower():
+            datos["cliente_nombre"] = "Kilbel"
+            datos["cuit_cliente"] = "30681989567"
+        elif "tunel" in ruta.lower():
+            datos["cliente_nombre"] = "El Tunel S.A."
+            datos["cuit_cliente"] = "30518084557"
+
+        carpeta_fecha = os.path.basename(ruta)
+        if carpeta_fecha:
+            try:
+                partes = carpeta_fecha.split("-")
+                datos["fecha"] = f"{partes[0]}/{partes[1]}/{partes[2]}"
+            except Exception:
+                datos["fecha"] = carpeta_fecha
+
+        total = self._extraer_total_pdf(ruta_pdf)
+        if total:
+            datos["imp_total"] = total
+            datos["imp_neto"] = round(total / 1.105, 2)
+            datos["imp_iva"] = round(total - datos["imp_neto"], 2)
+
+        try:
+            reader = PdfReader(ruta_pdf)
+            texto = ""
+            for page in reader.pages:
+                texto += page.extract_text()
+            lineas = texto.split("\n")
+
+            for i, linea in enumerate(lineas):
+                if "CAE" in linea:
+                    m = re.search(r'(\d{14})', linea)
+                    if m:
+                        datos["cae_original"] = m.group(1)
+                    elif i + 1 < len(lineas):
+                        m2 = re.search(r'(\d{14})', lineas[i + 1])
+                        if m2:
+                            datos["cae_original"] = m2.group(1)
+                    if datos.get("cae_original"):
+                        break
+
+            ultimo_domicilio = -1
+            for i, linea in enumerate(lineas):
+                if "Domicilio Comercial" in linea:
+                    ultimo_domicilio = i
+            if ultimo_domicilio >= 0 and ultimo_domicilio + 1 < len(lineas):
+                suc_val = lineas[ultimo_domicilio].split("Domicilio Comercial")[-1]
+                if ":" in suc_val:
+                    suc_val = suc_val.split(":")[-1].strip()
+                if not suc_val:
+                    suc_val = lineas[ultimo_domicilio + 1].strip()
+                if suc_val:
+                    datos["sucursal"] = suc_val
+
+            datos["productos"] = []
+            inicio_productos = -1
+            for i, linea in enumerate(lineas):
+                if "Subtotal c/IVA" in linea or "Subtotal c/IVA" in linea:
+                    inicio_productos = i + 1
+                    break
+
+            if inicio_productos > 0:
+                fin_productos = -1
+                for i in range(inicio_productos, len(lineas)):
+                    if "Importe" in lineas[i] and ("Tributos" in lineas[i] or "Neto" in lineas[i] or "Total" in lineas[i]):
+                        fin_productos = i
+                        break
+                if fin_productos == -1:
+                    fin_productos = len(lineas)
+
+                lineas_productos = lineas[inicio_productos:fin_productos]
+                for j in range(0, len(lineas_productos) - 7, 8):
+                    bloque = lineas_productos[j:j+8]
+                    if len(bloque) < 8:
+                        break
+                    nombre = bloque[0].strip().lower()
+                    if not nombre or nombre in ("importe neto gravado", "importe otros tributos"):
+                        continue
+                    try:
+                        cantidad_str = bloque[1].strip().replace(",", ".")
+                        cantidad = float(cantidad_str)
+                        unidad = bloque[2].strip().lower()
+                        precio_str = bloque[3].strip().replace(",", ".")
+                        precio = float(precio_str)
+                        es_kg = "kg" in unidad or "kilogramo" in unidad
+
+                        codigo = ""
+                        for prod in self.productos_config:
+                            if prod["nombre"].lower() == nombre or nombre in prod["nombre"].lower():
+                                codigo = prod["codigo_arca"]
+                                break
+
+                        datos["productos"].append({
+                            "nombre": bloque[0].strip(),
+                            "codigo_arca": codigo,
+                            "cantidad": cantidad,
+                            "precio": precio,
+                            "es_kg": es_kg
+                        })
+                    except (ValueError, IndexError):
+                        continue
+        except Exception:
+            datos["cae_original"] = ""
+
+        return datos
 
     def listar_precios_carpeta(self):
         ruta = self._get_carpeta_seleccionada()
@@ -1225,3 +1358,116 @@ class FacturaApp(ctk.CTk):
             
         self._limpiando = False
         self.log_message("Campos preparados para el siguiente remito.")
+
+    def on_generar_nota_credito(self):
+        if getattr(self, '_generating', False):
+            return
+        ruta_pdf = self._get_pdf_seleccionado()
+        if not ruta_pdf:
+            self.log_message("Error: Seleccioná una factura PDF para generar la nota de crédito.")
+            return
+
+        self._generating = True
+        self.btn_nota_credito.configure(state="disabled")
+
+        datos_original = self._extraer_datos_desde_pdf(ruta_pdf)
+
+        if not datos_original.get("cuit_cliente"):
+            self.log_message("Error: No se pudo determinar el cliente de la factura seleccionada.")
+            self._generating = False
+            self.btn_nota_credito.configure(state="normal")
+            return
+
+        if not datos_original.get("imp_total"):
+            self.log_message("Error: No se pudo leer el importe total de la factura seleccionada.")
+            self._generating = False
+            self.btn_nota_credito.configure(state="normal")
+            return
+
+        self.log_message("--- Generando Nota de Crédito ---")
+        self.log_message(f"Factura original: {datos_original.get('punto_venta_original', 0):05d}-{datos_original.get('nro_comprobante_original', 0):08d}")
+        self.log_message(f"Cliente: {datos_original.get('cliente_nombre')} | Total: ${datos_original.get('imp_total', 0):.2f}")
+        if self.modo_prueba.get():
+            self.log_message("⚠ MODO PRUEBA ACTIVADO - No se generarán comprobantes reales en ARCA")
+
+        t = threading.Thread(target=self._run_nota_credito_thread, args=(datos_original,))
+        t.daemon = True
+        t.start()
+
+    def _run_nota_credito_thread(self, datos_original):
+        if self.modo_prueba.get():
+            resultado = self._run_nota_credito_simulacion(datos_original)
+        elif self.start_nota_credito_callback:
+            resultado = self.start_nota_credito_callback(datos_original, self.log_message)
+        else:
+            self.log_message("Error: No hay callback configurado para notas de crédito.")
+            resultado = False
+
+        if resultado:
+            self.log_message("Nota de crédito generada correctamente.")
+        else:
+            self.log_message("Error al generar la nota de crédito.")
+
+        self.after(0, lambda: self.btn_nota_credito.configure(state="normal"))
+        self.after(0, lambda: setattr(self, '_generating', False))
+
+    def _run_nota_credito_simulacion(self, datos_original):
+        import datetime
+        siguiente_nro = self._get_next_nota_credito_nro()
+        punto_venta = 3
+        cae = f"6423456789{siguiente_nro:04d}"
+        vto_cae = "20261231"
+
+        datos_original["fecha_emision"] = datetime.datetime.now().strftime("%d/%m/%Y")
+
+        self.log_message(f"[SIMULACION] Nota de Crédito: {punto_venta:05d}-{siguiente_nro:08d}")
+        self.log_message(f"[SIMULACION] CAE: {cae}")
+
+        try:
+            import pdf_generator
+            desktop_dir = os.path.join(os.path.expanduser("~"), "Desktop")
+            cliente_nombre = datos_original.get("cliente_nombre", "")
+            cliente_folder = "kilbel" if cliente_nombre == "Kilbel" else "tunel"
+
+            if not datos_original.get("fecha"):
+                datos_original["fecha"] = datetime.datetime.now().strftime("%d/%m/%Y")
+            fecha_carpeta = datos_original["fecha"].replace("/", "-")
+
+            facturas_dir = os.path.join(desktop_dir, "facturas", cliente_folder, fecha_carpeta)
+            os.makedirs(facturas_dir, exist_ok=True)
+
+            pdf_filename = f"Nota_Credito_A_{punto_venta:05d}_{siguiente_nro:08d}.pdf"
+            pdf_path = os.path.join(facturas_dir, pdf_filename)
+
+            orig_ref = {
+                "punto_venta": int(datos_original.get("punto_venta_original", punto_venta)),
+                "nro_comprobante": int(datos_original.get("nro_comprobante_original", 0))
+            }
+            pdf_generator.generar_pdf_nota_credito(
+                datos_original, cae, vto_cae, siguiente_nro, pdf_path, punto_venta,
+                datos_original=orig_ref
+            )
+
+            self.log_message(f"[SIMULACION] PDF generado: {pdf_filename}")
+            if os.name == 'nt':
+                os.startfile(pdf_path)
+
+            return True
+        except Exception as e:
+            self.log_message(f"[SIMULACION] Error al generar PDF: {str(e)}")
+            return False
+
+    def _get_next_nota_credito_nro(self):
+        import re
+        base_path = os.path.join(os.path.expanduser("~"), "Desktop", "facturas")
+        max_nro = 0
+        if os.path.exists(base_path):
+            for root, dirs, files in os.walk(base_path):
+                for f in files:
+                    if f.startswith("Nota_Credito_A") and f.lower().endswith(".pdf"):
+                        match = re.search(r'_(\d{8})\.pdf$', f)
+                        if match:
+                            nro = int(match.group(1))
+                            if nro > max_nro:
+                                max_nro = nro
+        return max_nro + 1
