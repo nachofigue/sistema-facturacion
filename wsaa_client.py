@@ -1,4 +1,5 @@
 import os
+import sys
 import datetime
 import base64
 import json
@@ -9,14 +10,31 @@ from cryptography.x509 import load_pem_x509_certificate
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from cryptography.hazmat.primitives import serialization
 from zeep import Client
+from zeep.transports import Transport
+import requests
+import urllib3
+
+def get_afip_client(url):
+    ctx = urllib3.util.ssl_.create_urllib3_context()
+    ctx.set_ciphers('DEFAULT:@SECLEVEL=1')
+    session = requests.Session()
+    adapter = requests.adapters.HTTPAdapter()
+    adapter.poolmanager = urllib3.PoolManager(ssl_context=ctx)
+    session.mount('https://', adapter)
+    transport = Transport(session=session)
+    return Client(url, transport=transport)
 
 class WSAAClient:
-    def __init__(self, cert_path, key_path, url="https://wsaahomo.afip.gov.ar/ws/services/LoginCms?wsdl"):
+    def __init__(self, cert_path, key_path, url="https://wsaa.afip.gov.ar/ws/services/LoginCms?wsdl"):
         self.cert_path = cert_path
         self.key_path = key_path
         self.url = url
-        self.client = Client(self.url)
-        self.cache_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ta_cache.json")
+        self.client = get_afip_client(self.url)
+        if getattr(sys, 'frozen', False):
+            cache_dir = os.path.dirname(sys.executable)
+        else:
+            cache_dir = os.path.dirname(os.path.abspath(__file__))
+        self.cache_file = os.path.join(cache_dir, "ta_cache.json")
 
     def generate_tra(self, service="wsfe"):
         root = ET.Element("loginTicketRequest", {"version": "1.0"})

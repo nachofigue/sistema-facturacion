@@ -12,7 +12,7 @@ def fmt(value):
     # Formatea un float al estilo argentino (coma para decimales, dos decimales)
     return f"{value:.2f}".replace('.', ',')
 
-def generar_pdf_factura(datos_factura, cae, vto_cae, nro_comprobante, output_path):
+def generar_pdf_factura(datos_factura, cae, vto_cae, nro_comprobante, output_path, punto_venta=3):
     c = canvas.Canvas(output_path, pagesize=A4)
     width, height = A4
     
@@ -88,7 +88,7 @@ def generar_pdf_factura(datos_factura, cae, vto_cae, nro_comprobante, output_pat
         c.setFont("Helvetica-Bold", 9)
         c.drawString(width/2 + 40, m_top - 85, "Punto de Venta: ")
         c.setFont("Helvetica", 10)
-        c.drawString(width/2 + 115, m_top - 85, "00001")
+        c.drawString(width/2 + 115, m_top - 85, f"{punto_venta:05d}")
         
         c.setFont("Helvetica-Bold", 9)
         c.drawString(width/2 + 150, m_top - 85, "Comp. Nro: ")
@@ -120,7 +120,8 @@ def generar_pdf_factura(datos_factura, cae, vto_cae, nro_comprobante, output_pat
         c.rect(m_left, m_top - 255, m_w, 70)
         
         cuit_cliente = str(datos_factura.get("cuit_cliente", ""))
-        remito_str = f"00001-{int(datos_factura.get('remito', 0)):08d}" if datos_factura.get('remito') else ""
+        orden_str = datos_factura.get("orden", "00002")
+        remito_str = f"{orden_str}-{int(datos_factura.get('remito', 0)):08d}" if datos_factura.get('remito') else ""
         
         suc = datos_factura.get("sucursal", "").strip()
         
@@ -173,7 +174,6 @@ def generar_pdf_factura(datos_factura, cae, vto_cae, nro_comprobante, output_pat
         # Tramos X para las columnas (proporciones de la captura)
         cx = [m_left, m_left + 45, m_left + 230, m_left + 270, m_left + 320, m_left + 370, m_left + 410, m_left + 460, m_left + 500, m_right]
         
-        c.drawCentredString((cx[0]+cx[1])/2, y_grid_top - 15, "Código")
         c.drawString(cx[1]+5, y_grid_top - 15, "Producto / Servicio")
         c.drawCentredString((cx[2]+cx[3])/2, y_grid_top - 15, "Cantidad")
         c.drawCentredString((cx[3]+cx[4])/2, y_grid_top - 15, "U. medida")
@@ -190,14 +190,24 @@ def generar_pdf_factura(datos_factura, cae, vto_cae, nro_comprobante, output_pat
         # Filas de Productos
         y_row = y_grid_top - 40
         c.setFont("Helvetica", 8)
-        for p in datos_factura.get("productos", []):
+        productos_display = datos_factura.get("productos", [])
+        if cliente_nombre != "Kilbel":
+            productos_display = []
+            for p in datos_factura.get("productos", []):
+                cp = dict(p)
+                cod = cp.get("codigo_arca", "")
+                if cod == "105M":
+                    cp["nombre"] = "105"
+                elif cod == "104M":
+                    cp["nombre"] = "104"
+                productos_display.append(cp)
+        for p in productos_display:
             bruto = p["cantidad"] * p["precio"]
             descuento = bruto * (bonif_pct / 100.0)
             subtotal_neto = bruto - descuento
             iva_item = subtotal_neto * 0.105
             subtotal_c_iva = subtotal_neto + iva_item
             
-            c.drawString(cx[0] + 5, y_row, str(p.get("codigo_arca", "")))
             c.drawString(cx[1] + 5, y_row, p.get("nombre", "").lower())
             
             c.drawRightString(cx[3] - 5, y_row, fmt(p["cantidad"]))
@@ -290,11 +300,18 @@ def generar_pdf_factura(datos_factura, cae, vto_cae, nro_comprobante, output_pat
         c.drawString(width - 145, 35, vto_cae_fmt)
         
         # QR Code
+        import base64
+        
+        try:
+            fecha_qr = datetime.datetime.strptime(fecha_emision, "%d/%m/%Y").strftime("%Y-%m-%d")
+        except:
+            fecha_qr = fecha_emision.replace('/', '-')
+            
         qr_data = {
             "ver": 1,
-            "fecha": fecha_emision.replace('/', '-'),
+            "fecha": fecha_qr,
             "cuit": 23257812634,
-            "ptoVta": 1,
+            "ptoVta": punto_venta,
             "tipoCmp": 1,
             "nroCmp": nro_comprobante,
             "importe": total,
@@ -303,10 +320,14 @@ def generar_pdf_factura(datos_factura, cae, vto_cae, nro_comprobante, output_pat
             "tipoDocRec": 80,
             "nroDocRec": int(cuit_cliente) if cuit_cliente else 0,
             "tipoCodAut": "E",
-            "codAut": cae
+            "codAut": int(cae)
         }
         
-        img = qrcode.make(json.dumps(qr_data))
+        json_qr = json.dumps(qr_data)
+        b64_qr = base64.b64encode(json_qr.encode('utf-8')).decode('utf-8')
+        qr_url = f"https://servicioscf.afip.gob.ar/publico/comprobantes/cae.aspx?p={b64_qr}"
+        
+        img = qrcode.make(qr_url)
         qr_buffer = io.BytesIO()
         img.save(qr_buffer, format="PNG")
         qr_buffer.seek(0)

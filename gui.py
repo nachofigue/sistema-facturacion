@@ -57,6 +57,7 @@ class FacturaApp(ctk.CTk):
         self.grid_rowconfigure(0, weight=3) # Formulario
         self.grid_rowconfigure(1, weight=1) # Logs
         
+        self.modo_prueba = ctk.BooleanVar(value=False)
         self.setup_ui()
         
     def load_config(self):
@@ -105,7 +106,7 @@ class FacturaApp(ctk.CTk):
         # Número de Orden
         ctk.CTkLabel(self.frame_general, text="Número de Orden").pack(anchor="w", padx=20)
         self.entry_orden = ctk.CTkEntry(self.frame_general, border_width=2, border_color="#565656")
-        self.entry_orden.insert(0, "00001")
+        self.entry_orden.insert(0, "00002")
         vcmd_orden = (self.register(self._validate_only_digits), '%P', 5)
         self.entry_orden.configure(validate='key', validatecommand=vcmd_orden)
         self.entry_orden.pack(fill="x", padx=20, pady=(0, 15))
@@ -233,6 +234,15 @@ class FacturaApp(ctk.CTk):
         
         self.console_visible = False
         self.frame_logs.grid_remove()
+        self.switch_modo_prueba = ctk.CTkSwitch(
+            self, text="Modo Prueba (sin ARCA)",
+            variable=self.modo_prueba,
+            onvalue=True, offvalue=False,
+            command=self.on_modo_prueba_toggle,
+            font=ctk.CTkFont(size=12)
+        )
+        self.switch_modo_prueba.place(relx=0.0, x=20, y=10, anchor="nw")
+
         self.btn_toggle_console = ctk.CTkButton(self, text="Mostrar Consola", width=120, height=28, command=self.toggle_console)
         self.btn_toggle_console.place(relx=0.98, y=15, anchor="ne")
         
@@ -248,6 +258,12 @@ class FacturaApp(ctk.CTk):
             self.frame_logs.grid()
             self.btn_toggle_console.configure(text="Ocultar Consola")
             self.console_visible = True
+
+    def on_modo_prueba_toggle(self):
+        if self.modo_prueba.get():
+            self.btn_generar.configure(text="Generar Factura (SIMULACIÓN)", fg_color="#e67e22")
+        else:
+            self.btn_generar.configure(text="Generar Factura en ARCA", fg_color=("#3B8ED0", "#1F6AA5"))
 
     def setup_precios_tab(self):
         self.tab_precios.grid_columnconfigure(0, weight=1)
@@ -505,7 +521,7 @@ class FacturaApp(ctk.CTk):
                     ruta_pdf = os.path.join(ruta_fecha, pdf)
                     size = os.path.getsize(ruta_pdf)
                     size_str = f"{size / 1024:.1f} KB" if size < 1024 * 1024 else f"{size / (1024*1024):.1f} MB"
-                    nro = pdf.replace("Factura_A_00001_", "").replace("Factura_A_0001_", "").replace(".pdf", "")
+                    nro = pdf.split("_")[-1].replace(".pdf", "")
                     total = self._extraer_total_pdf(ruta_pdf)
                     total_str = f"${total:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if total else ""
                     items_planos.append((nro, etiqueta, pdf, size_str, total_str, ruta_pdf))
@@ -557,9 +573,9 @@ class FacturaApp(ctk.CTk):
                 pdfs = [f for f in os.listdir(ruta_fecha) if f.lower().endswith(".pdf")]
 
                 if orden == "Nro Mayor a Menor":
-                    pdfs.sort(key=lambda x: int(x.replace("Factura_A_00001_", "").replace("Factura_A_0001_", "").replace(".pdf", "")), reverse=True)
+                    pdfs.sort(key=lambda x: int(x.split("_")[-1].replace(".pdf", "")), reverse=True)
                 elif orden == "Nro Menor a Mayor":
-                    pdfs.sort(key=lambda x: int(x.replace("Factura_A_00001_", "").replace("Factura_A_0001_", "").replace(".pdf", "")))
+                    pdfs.sort(key=lambda x: int(x.split("_")[-1].replace(".pdf", "")))
 
                 if not pdfs:
                     self.archivo_tree.insert(fecha_id, "end", text="(sin archivos)")
@@ -681,7 +697,7 @@ class FacturaApp(ctk.CTk):
             if self.archivo_tree.item(child, "text") == "--- Totales ---":
                 self.archivo_tree.delete(child)
 
-        pdfs = sorted([f for f in os.listdir(ruta) if f.lower().endswith(".pdf")])
+        pdfs = [self.archivo_tree.item(child, "text") for child in self.archivo_tree.get_children(fecha_id) if self.archivo_tree.item(child, "text").lower().endswith(".pdf")]
         if not pdfs:
             self.log_message("No hay PDFs en la carpeta seleccionada.")
             return
@@ -694,8 +710,8 @@ class FacturaApp(ctk.CTk):
                 total_str = f"${total:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
             else:
                 total_str = "N/A"
-            nombre_corto = pdf.replace("Factura_A_00001_", "").replace("Factura_A_0001_", "").replace(".pdf", "")
-            nro = pdf.replace("Factura_A_00001_", "").replace("Factura_A_0001_", "").replace(".pdf", "")
+            nombre_corto = pdf.split("_")[-1].replace(".pdf", "")
+            nro = pdf.split("_")[-1].replace(".pdf", "")
             self._datos_precios.append({"nro": nro, "total": total, "total_str": total_str})
             self.archivo_tree.insert(precios_id, "end", text=f"     {nro}  →  {total_str}")
 
@@ -1026,6 +1042,60 @@ class FacturaApp(ctk.CTk):
         self.textbox_log.see("end")
         self.textbox_log.configure(state="disabled")
 
+    def _get_next_comprobante_nro(self):
+        import re
+        base_path = os.path.join(os.path.expanduser("~"), "Desktop", "facturas")
+        max_nro = 0
+        if os.path.exists(base_path):
+            for root, dirs, files in os.walk(base_path):
+                for f in files:
+                    if f.lower().endswith(".pdf"):
+                        match = re.search(r'_(\d{8})\.pdf$', f)
+                        if match:
+                            nro = int(match.group(1))
+                            if nro > max_nro:
+                                max_nro = nro
+        return max_nro + 1
+
+    def run_simulacion(self, datos):
+        import datetime
+        siguiente_nro = self._get_next_comprobante_nro()
+        punto_venta = 3
+        cae = f"6423456789{siguiente_nro:04d}"
+        vto_cae = "20261231"
+
+        datos["fecha_emision"] = datetime.datetime.now().strftime("%d/%m/%Y")
+
+        self.log_message(f"[SIMULACION] Comprobante: {punto_venta:05d}-{siguiente_nro:08d}")
+        self.log_message(f"[SIMULACION] CAE: {cae}")
+
+        try:
+            import pdf_generator
+            desktop_dir = os.path.join(os.path.expanduser("~"), "Desktop")
+            cliente_nombre = datos.get("cliente_nombre", "")
+            cliente_folder = "kilbel" if cliente_nombre == "Kilbel" else "tunel"
+
+            if not datos.get("fecha"):
+                datos["fecha"] = datetime.datetime.now().strftime("%d/%m/%Y")
+            fecha_carpeta = datos["fecha"].replace("/", "-")
+
+            facturas_dir = os.path.join(desktop_dir, "facturas", cliente_folder, fecha_carpeta)
+            os.makedirs(facturas_dir, exist_ok=True)
+
+            pdf_filename = f"Factura_A_{punto_venta:05d}_{siguiente_nro:08d}.pdf"
+            pdf_path = os.path.join(facturas_dir, pdf_filename)
+            pdf_generator.generar_pdf_factura(datos, cae, vto_cae, siguiente_nro, pdf_path, punto_venta)
+
+            self.log_message(f"[SIMULACION] PDF generado: {pdf_filename}")
+
+            if os.name == 'nt':
+                os.startfile(pdf_path)
+
+            return True
+        except Exception as e:
+            self.log_message(f"[SIMULACION] Error al generar PDF: {str(e)}")
+            return False
+
     def get_data(self):
         cliente_seleccionado = self.combo_cliente.get()
         cuit_map = {
@@ -1102,6 +1172,8 @@ class FacturaApp(ctk.CTk):
             return
             
         self.log_message("--- Iniciando proceso de facturación ---")
+        if self.modo_prueba.get():
+            self.log_message("⚠ MODO PRUEBA ACTIVADO - No se generarán comprobantes reales en ARCA")
         self.log_message(f"Remito: {datos['remito']} | Cliente: {datos['cuit_cliente']} | Sucursal: {datos['sucursal']}")
         self.log_message(f"Productos a facturar: {len(datos['productos'])}")
         
@@ -1111,7 +1183,10 @@ class FacturaApp(ctk.CTk):
         t.start()
         
     def run_bot_thread(self, datos):
-        resultado = self.start_bot_callback(datos, self.log_message)
+        if self.modo_prueba.get():
+            resultado = self.run_simulacion(datos)
+        else:
+            resultado = self.start_bot_callback(datos, self.log_message)
         if resultado:
             self.log_message("Proceso finalizado correctamente.")
             # Solo avanzar campos si fue exitoso

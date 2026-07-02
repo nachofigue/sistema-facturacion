@@ -2,7 +2,7 @@ import os
 import datetime
 from dotenv import load_dotenv
 from zeep import Client
-from wsaa_client import WSAAClient
+from wsaa_client import WSAAClient, get_afip_client
 
 load_dotenv()
 
@@ -36,9 +36,9 @@ def generar_factura(datos_remito, update_log_callback=None):
         log(f"¡Ticket obtenido! Autenticado correctamente.", update_log_callback)
         
         log("Conectando con WSFE (Facturación)...", update_log_callback)
-        # URL de Homologación de Factura Electrónica
-        wsfe_url = "https://wswhomo.afip.gov.ar/wsfev1/service.asmx?WSDL"
-        client = Client(wsfe_url)
+        # URL de Producción de Factura Electrónica
+        wsfe_url = "https://servicios1.afip.gov.ar/wsfev1/service.asmx?WSDL"
+        client = get_afip_client(wsfe_url)
         
         # Objeto de autenticación común
         auth = {
@@ -48,7 +48,7 @@ def generar_factura(datos_remito, update_log_callback=None):
         }
         
         # Parámetros de la factura (Factura A)
-        punto_venta = 1
+        punto_venta = 3
         tipo_cbte = 1 # 1 = Factura A
         concepto = 1 # 1 = Productos
         doc_tipo = 80 # 80 = CUIT
@@ -181,7 +181,7 @@ def generar_factura(datos_remito, update_log_callback=None):
                 
                 pdf_filename = f"Factura_A_{punto_venta:05d}_{siguiente_nro:08d}.pdf"
                 pdf_path = os.path.join(facturas_dir, pdf_filename)
-                pdf_generator.generar_pdf_factura(datos_remito, cae, vto_cae, siguiente_nro, pdf_path)
+                pdf_generator.generar_pdf_factura(datos_remito, cae, vto_cae, siguiente_nro, pdf_path, punto_venta)
                 
                 log(f"PDF guardado en: {pdf_filename}", update_log_callback)
                 
