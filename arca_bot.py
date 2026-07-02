@@ -184,13 +184,9 @@ def generar_factura(datos_remito, update_log_callback=None):
                 pdf_generator.generar_pdf_factura(datos_remito, cae, vto_cae, siguiente_nro, pdf_path, punto_venta)
                 
                 log(f"PDF guardado en: {pdf_filename}", update_log_callback)
-                
-                # Abrir PDF
-                if os.name == 'nt': # Windows
-                    os.startfile(pdf_path)
             except Exception as e_pdf:
                 log(f"Error al generar PDF: {str(e_pdf)}", update_log_callback)
-                
+
             return True
         else:
             obs = detalle_res.Observaciones.Obs[0].Msg if detalle_res.Observaciones else "Rechazo desconocido"
@@ -365,9 +361,6 @@ def generar_nota_credito(datos_original, update_log_callback=None):
                 )
 
                 log(f"PDF guardado en: {pdf_filename}", update_log_callback)
-
-                if os.name == 'nt':
-                    os.startfile(pdf_path)
             except Exception as e_pdf:
                 log(f"Error al generar PDF: {str(e_pdf)}", update_log_callback)
 

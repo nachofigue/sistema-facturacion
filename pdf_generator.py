@@ -12,6 +12,31 @@ def fmt(value):
     # Formatea un float al estilo argentino (coma para decimales, dos decimales)
     return f"{value:.2f}".replace('.', ',')
 
+def _cargar_logo():
+    import sys, os
+    from PIL import Image
+    from reportlab.lib.utils import ImageReader
+    try:
+        if getattr(sys, 'frozen', False):
+            base = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+        else:
+            base = os.path.dirname(os.path.abspath(__file__))
+        ruta = os.path.join(base, "logo-factura.png")
+        if os.path.exists(ruta):
+            img = Image.open(ruta)
+            if img.mode == 'RGBA':
+                img = img.convert('RGB')
+            return ImageReader(img)
+    except:
+        pass
+    return None
+
+_LOGO = _cargar_logo()
+
+def _dibujar_logo(c, x, y, ancho=55):
+    if _LOGO:
+        c.drawImage(_LOGO, x, y, width=ancho, height=ancho, preserveAspectRatio=True)
+
 def generar_pdf_factura(datos_factura, cae, vto_cae, nro_comprobante, output_path, punto_venta=3):
     c = canvas.Canvas(output_path, pagesize=A4)
     width, height = A4
@@ -63,6 +88,7 @@ def generar_pdf_factura(datos_factura, cae, vto_cae, nro_comprobante, output_pat
         c.drawCentredString(width/2, m_top - 60, "COD. 01")
         
         # ---- Datos Izquierda (Emisor) ----
+        _dibujar_logo(c, m_left + 5, m_top - 80)
         c.setFont("Helvetica-Bold", 12)
         c.drawCentredString(width/4, m_top - 55, "SU BANDEJA")
         
@@ -385,6 +411,7 @@ def generar_pdf_nota_credito(datos_factura, cae, vto_cae, nro_comprobante, outpu
         c.setFont("Helvetica-Bold", 8)
         c.drawCentredString(width/2, m_top - 60, "COD. 03")
 
+        _dibujar_logo(c, m_left + 5, m_top - 80)
         c.setFont("Helvetica-Bold", 12)
         c.drawCentredString(width/4, m_top - 55, "SU BANDEJA")
 
@@ -653,5 +680,52 @@ def generar_pdf_nota_credito(datos_factura, cae, vto_cae, nro_comprobante, outpu
 
         if idx < len(copias) - 1:
             c.showPage()
+
+    c.save()
+
+def generar_reporte_diario(fecha, datos_por_cliente, output_path):
+    c = canvas.Canvas(output_path, pagesize=A4)
+    width, height = A4
+    m_left = 30
+    m_top = height - 40
+    espaciado = 24
+
+    c.setFont("Helvetica-Bold", 26)
+    c.drawCentredString(width / 2, m_top, f"Reporte diario {fecha}")
+
+    y = m_top - 50
+
+    for cliente, facturas in datos_por_cliente.items():
+        if y < 100:
+            c.showPage()
+            y = height - 40
+
+        c.setFont("Helvetica-Bold", 18)
+        c.drawString(m_left, y, cliente)
+        y -= 30
+
+        c.setFont("Helvetica", 14)
+        for factura in facturas:
+            if y < 60:
+                c.showPage()
+                c.setFont("Helvetica", 14)
+                y = height - 40
+
+            total_fmt = f"${factura['total']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            line = f"{factura['nro']} ---> {total_fmt}"
+
+            if "nc" in factura and factura["nc"]:
+                nc_total_fmt = f"${factura['nc']['total']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if factura['nc']['total'] else ""
+                nc_line = f"{factura['nc']['nro']} ---> {nc_total_fmt}"
+                c.setFillColor(colors.red)
+                c.drawString(m_left + 10, y, f"{line}        ({nc_line})")
+                c.setFillColor(colors.black)
+            else:
+                c.setFillColor(colors.black)
+                c.drawString(m_left + 10, y, line)
+            c.setFillColor(colors.black)
+            y -= espaciado
+
+        y -= 20
 
     c.save()

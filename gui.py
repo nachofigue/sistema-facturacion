@@ -7,6 +7,9 @@ from tkinter import ttk, messagebox
 import shutil
 import csv
 from datetime import datetime
+import fitz
+from PIL import Image
+import tempfile
 
 class FacturaApp(ctk.CTk):
     def __init__(self, start_bot_callback, start_nota_credito_callback=None):
@@ -215,7 +218,7 @@ class FacturaApp(ctk.CTk):
             self.entry_sucursal.bind("<Return>", lambda e: self.handle_sucursal_enter(e, self.btn_generar))
 
         # Botón Generar
-        self.btn_generar = ctk.CTkButton(self.frame_general, text="Generar Factura en ARCA", height=40, font=ctk.CTkFont(size=15, weight="bold"), command=self.on_generar_click)
+        self.btn_generar = ctk.CTkButton(self.frame_general, text="Ver vista previa de factura", height=40, font=ctk.CTkFont(size=15, weight="bold"), command=self.on_generar_click)
         self.btn_generar.pack(fill="x", padx=20, pady=30)
         self.btn_generar.bind("<Return>", lambda e: self.on_generar_click())
 
@@ -262,9 +265,9 @@ class FacturaApp(ctk.CTk):
 
     def on_modo_prueba_toggle(self):
         if self.modo_prueba.get():
-            self.btn_generar.configure(text="Generar Factura (SIMULACIÓN)", fg_color="#e67e22")
+            self.btn_generar.configure(text="Ver vista previa (SIMULACIÓN)", fg_color="#e67e22")
         else:
-            self.btn_generar.configure(text="Generar Factura en ARCA", fg_color=("#3B8ED0", "#1F6AA5"))
+            self.btn_generar.configure(text="Ver vista previa de factura", fg_color=("#3B8ED0", "#1F6AA5"))
 
     def setup_precios_tab(self):
         self.tab_precios.grid_columnconfigure(0, weight=1)
@@ -376,6 +379,14 @@ class FacturaApp(ctk.CTk):
         self.btn_eliminar_pdf = ctk.CTkButton(btn_frame, text="Eliminar", command=self.eliminar_pdf_seleccionado, state="disabled", fg_color="#c0392b", hover_color="#96281b")
         self.btn_eliminar_pdf.pack(side="left", padx=10)
 
+        self.btn_reporte_diario = ctk.CTkButton(
+            btn_frame, text="Reporte Diario",
+            command=self.generar_reporte_diario,
+            fg_color="#1565C0", hover_color="#0D47A1",
+            font=ctk.CTkFont(size=12, weight="bold")
+        )
+        self.btn_reporte_diario.pack(side="left", padx=10)
+
         sep_frame = ctk.CTkFrame(btn_frame, width=2, fg_color="#555555")
         sep_frame.pack(side="left", padx=5, fill="y", pady=5)
 
@@ -452,7 +463,9 @@ class FacturaApp(ctk.CTk):
         if not sel:
             return None
         texto = self.archivo_tree.item(sel[0], "text")
-        if not texto.lower().endswith(".pdf"):
+        # Extraer solo el nombre del PDF si hay info de NC adjunta
+        pdf_name = texto.split("  |  ")[0].strip()
+        if not pdf_name.lower().endswith(".pdf"):
             return None
         padres = []
         temp = self.archivo_tree.parent(sel[0])
@@ -463,12 +476,12 @@ class FacturaApp(ctk.CTk):
             fecha = padres[0].replace("Facturas del ", "")
             base = os.path.join(os.path.expanduser("~"), "Desktop", "facturas")
             for carpeta in os.listdir(base):
-                ruta = os.path.join(base, carpeta, fecha, texto)
+                ruta = os.path.join(base, carpeta, fecha, pdf_name)
                 if os.path.isfile(ruta):
                     return ruta
         elif len(padres) == 2:
             cliente_folder = "tunel" if padres[0] == "TUNEL" else "kilbel"
-            ruta = os.path.join(os.path.expanduser("~"), "Desktop", "facturas", cliente_folder, padres[1], texto)
+            ruta = os.path.join(os.path.expanduser("~"), "Desktop", "facturas", cliente_folder, padres[1], pdf_name)
             if os.path.isfile(ruta):
                 return ruta
         return None
@@ -493,6 +506,8 @@ class FacturaApp(ctk.CTk):
 
         self.archivo_tree.tag_configure("TUNEL", foreground="#e74c3c")
         self.archivo_tree.tag_configure("KILBEL", foreground="#2ecc71")
+        self.archivo_tree.tag_configure("TUNEL_NC", foreground="#ff4444")
+        self.archivo_tree.tag_configure("KILBEL_NC", foreground="#ff4444")
 
         desktop = os.path.join(os.path.expanduser("~"), "Desktop")
         base_path = os.path.join(desktop, "facturas")
@@ -529,25 +544,44 @@ class FacturaApp(ctk.CTk):
                 if not os.path.isdir(ruta_cliente):
                     continue
                 etiqueta = "TUNEL" if "tunel" in carpeta_cliente.lower() else "KILBEL"
+                etiqueta_nc = "TUNEL_NC" if "tunel" in carpeta_cliente.lower() else "KILBEL_NC"
                 ruta_fecha = os.path.join(ruta_cliente, fecha)
                 if not os.path.isdir(ruta_fecha):
                     continue
-                pdfs = [f for f in os.listdir(ruta_fecha) if f.lower().endswith(".pdf")]
-                for pdf in pdfs:
+                all_pdfs = [f for f in os.listdir(ruta_fecha) if f.lower().endswith(".pdf")]
+                factura_pdfs = [f for f in all_pdfs if f.startswith("Factura_")]
+                nc_pdfs = [f for f in all_pdfs if f.startswith("Nota_Credito_")]
+
+                nc_map = {}
+                for nc_pdf in nc_pdfs:
+                    ruta_nc = os.path.join(ruta_fecha, nc_pdf)
+                    orig_pv, orig_nro = self._extraer_factura_original_desde_nc(ruta_nc)
+                    if orig_nro:
+                        nc_total = self._extraer_total_pdf(ruta_nc)
+                        nc_self_nro = nc_pdf.split("_")[-1].replace(".pdf", "")
+                        nc_map[orig_nro] = (nc_self_nro, nc_total)
+
+                for pdf in factura_pdfs:
                     ruta_pdf = os.path.join(ruta_fecha, pdf)
                     size = os.path.getsize(ruta_pdf)
                     size_str = f"{size / 1024:.1f} KB" if size < 1024 * 1024 else f"{size / (1024*1024):.1f} MB"
-                    nro = pdf.split("_")[-1].replace(".pdf", "")
+                    nro_factura = int(pdf.split("_")[-1].replace(".pdf", ""))
                     total = self._extraer_total_pdf(ruta_pdf)
                     total_str = f"${total:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if total else ""
-                    items_planos.append((nro, etiqueta, pdf, size_str, total_str, ruta_pdf))
+                    txt = pdf
+                    tag_a_usar = etiqueta
+                    if nro_factura in nc_map:
+                        nc_nro, nc_total = nc_map[nro_factura]
+                        nc_str = f"${nc_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if nc_total else ""
+                        txt = f"{pdf}  |  NC: {nc_nro}  {nc_str}"
+                        tag_a_usar = etiqueta_nc
+                    items_planos.append((str(nro_factura), etiqueta, txt, size_str, total_str, ruta_pdf, tag_a_usar))
 
             if not items_planos:
                 self.archivo_tree.insert("", "end", text=f"No hay facturas para la fecha {fecha}")
                 self._deshabilitar_botones()
                 return
 
-            # Ordenar
             if orden == "Nro Mayor a Menor":
                 items_planos.sort(key=lambda x: int(x[0]), reverse=True)
             elif orden == "Nro Menor a Mayor":
@@ -556,8 +590,8 @@ class FacturaApp(ctk.CTk):
                 items_planos.sort(key=lambda x: (x[1], int(x[0])))
 
             fecha_id = self.archivo_tree.insert("", "end", text=f"Facturas del {fecha}", open=True)
-            for nro, etiqueta, pdf, size_str, total_str, ruta_pdf in items_planos:
-                self.archivo_tree.insert(fecha_id, "end", text=pdf, values=(total_str, size_str, etiqueta), tags=(etiqueta,))
+            for nro, etiqueta, txt, size_str, total_str, ruta_pdf, tag in items_planos:
+                self.archivo_tree.insert(fecha_id, "end", text=txt, values=(total_str, size_str, etiqueta), tags=(tag,))
 
             self._actualizar_botones()
             return
@@ -575,6 +609,7 @@ class FacturaApp(ctk.CTk):
                 continue
 
             etiqueta = "TUNEL" if cliente_folder == "tunel" else "KILBEL"
+            etiqueta_nc = "TUNEL_NC" if cliente_folder == "tunel" else "KILBEL_NC"
 
             for carpeta_fecha in sorted(os.listdir(ruta_cliente), reverse=True):
                 ruta_fecha = os.path.join(ruta_cliente, carpeta_fecha)
@@ -586,22 +621,41 @@ class FacturaApp(ctk.CTk):
                     self.archivo_tree.detach(fecha_id)
                     continue
 
-                pdfs = [f for f in os.listdir(ruta_fecha) if f.lower().endswith(".pdf")]
+                all_pdfs = [f for f in os.listdir(ruta_fecha) if f.lower().endswith(".pdf")]
+                factura_pdfs = [f for f in all_pdfs if f.startswith("Factura_")]
+                nc_pdfs = [f for f in all_pdfs if f.startswith("Nota_Credito_")]
+
+                nc_map = {}
+                for nc_pdf in nc_pdfs:
+                    ruta_nc = os.path.join(ruta_fecha, nc_pdf)
+                    orig_pv, orig_nro = self._extraer_factura_original_desde_nc(ruta_nc)
+                    if orig_nro:
+                        nc_total = self._extraer_total_pdf(ruta_nc)
+                        nc_self_nro = nc_pdf.split("_")[-1].replace(".pdf", "")
+                        nc_map[orig_nro] = (nc_self_nro, nc_total)
 
                 if orden == "Nro Mayor a Menor":
-                    pdfs.sort(key=lambda x: int(x.split("_")[-1].replace(".pdf", "")), reverse=True)
+                    factura_pdfs.sort(key=lambda x: int(x.split("_")[-1].replace(".pdf", "")), reverse=True)
                 elif orden == "Nro Menor a Mayor":
-                    pdfs.sort(key=lambda x: int(x.split("_")[-1].replace(".pdf", "")))
+                    factura_pdfs.sort(key=lambda x: int(x.split("_")[-1].replace(".pdf", "")))
 
-                if not pdfs:
+                if not factura_pdfs:
                     self.archivo_tree.insert(fecha_id, "end", text="(sin archivos)")
-                for pdf in pdfs:
+                for pdf in factura_pdfs:
                     ruta_pdf = os.path.join(ruta_fecha, pdf)
                     size = os.path.getsize(ruta_pdf)
                     size_str = f"{size / 1024:.1f} KB" if size < 1024 * 1024 else f"{size / (1024*1024):.1f} MB"
                     total = self._extraer_total_pdf(ruta_pdf)
                     total_str = f"${total:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if total else ""
-                    self.archivo_tree.insert(fecha_id, "end", text=pdf, values=(total_str, size_str, etiqueta), tags=(etiqueta,))
+                    nro_factura = int(pdf.split("_")[-1].replace(".pdf", ""))
+                    txt = pdf
+                    tag_a_usar = etiqueta
+                    if nro_factura in nc_map:
+                        nc_nro, nc_total = nc_map[nro_factura]
+                        nc_str = f"${nc_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if nc_total else ""
+                        txt = f"{pdf}  |  NC: {nc_nro}  {nc_str}"
+                        tag_a_usar = etiqueta_nc
+                    self.archivo_tree.insert(fecha_id, "end", text=txt, values=(total_str, size_str, etiqueta), tags=(tag_a_usar,))
 
         self._actualizar_botones()
 
@@ -697,6 +751,21 @@ class FacturaApp(ctk.CTk):
         except Exception:
             pass
         return None
+
+    def _extraer_factura_original_desde_nc(self, ruta_pdf):
+        import re
+        from pypdf import PdfReader
+        try:
+            reader = PdfReader(ruta_pdf)
+            texto_completo = ""
+            for page in reader.pages:
+                texto_completo += page.extract_text() + "\n"
+            match = re.search(r'Fac\.\s*A\s*:\s*(\d{5})-(\d{8})', texto_completo)
+            if match:
+                return int(match.group(1)), int(match.group(2))
+        except:
+            pass
+        return None, None
 
     def _extraer_datos_desde_pdf(self, ruta_pdf):
         import re
@@ -888,6 +957,66 @@ class FacturaApp(ctk.CTk):
             self.refresh_archivo_tree()
         except Exception as e:
             self.log_message(f"Error al eliminar: {str(e)}")
+
+    def generar_reporte_diario(self):
+        fecha = self.combo_archivo_fecha.get()
+        if not fecha:
+            self.log_message("Error: Seleccioná una fecha en el filtro para generar el reporte.")
+            return
+
+        import re
+        desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+        base_path = os.path.join(desktop, "facturas")
+        datos_por_cliente = {"Kilbel": [], "Tunel": []}
+
+        for cliente_nombre, carpeta in [("Kilbel", "kilbel"), ("Tunel", "tunel")]:
+            ruta_fecha = os.path.join(base_path, carpeta, fecha)
+            if not os.path.isdir(ruta_fecha):
+                continue
+            all_pdfs = [f for f in os.listdir(ruta_fecha) if f.lower().endswith(".pdf")]
+            factura_pdfs = [f for f in all_pdfs if f.startswith("Factura_")]
+            nc_pdfs = [f for f in all_pdfs if f.startswith("Nota_Credito_")]
+
+            nc_map = {}
+            for nc_pdf in nc_pdfs:
+                ruta_nc = os.path.join(ruta_fecha, nc_pdf)
+                orig_pv, orig_nro = self._extraer_factura_original_desde_nc(ruta_nc)
+                if orig_nro:
+                    nc_match = re.search(r'_(\d{5})_(\d{8})\.pdf$', nc_pdf)
+                    if nc_match:
+                        nc_self_nro = f"{nc_match.group(1)}-{nc_match.group(2)}"
+                        nc_total = self._extraer_total_pdf(ruta_nc)
+                        nc_map[orig_nro] = {"nro": nc_self_nro, "total": nc_total}
+
+            for pdf_name in factura_pdfs:
+                ruta_pdf = os.path.join(ruta_fecha, pdf_name)
+                match = re.search(r'_(\d{5})_(\d{8})\.pdf$', pdf_name)
+                if not match:
+                    continue
+                nro_comp = f"{match.group(1)}-{match.group(2)}"
+                nro_int = int(match.group(2))
+                total = self._extraer_total_pdf(ruta_pdf)
+                if total is not None:
+                    entry = {"nro": nro_comp, "total": total}
+                    if nro_int in nc_map:
+                        entry["nc"] = nc_map[nro_int]
+                    datos_por_cliente[cliente_nombre].append(entry)
+
+        for cliente in datos_por_cliente:
+            datos_por_cliente[cliente].sort(key=lambda x: int(x["nro"].split("-")[1]))
+
+        if not any(datos_por_cliente.values()):
+            self.log_message(f"No se encontraron facturas para la fecha {fecha}.")
+            return
+
+        import pdf_generator
+        fecha_archivo = fecha.replace("/", "-")
+        output_path = os.path.join(desktop, f"Reporte_Diario_{fecha_archivo}.pdf")
+        pdf_generator.generar_reporte_diario(fecha, datos_por_cliente, output_path)
+
+        self.log_message(f"Reporte diario generado: {output_path}")
+        if os.name == 'nt':
+            os.startfile(output_path)
 
     def guardar_precios(self):
         import sys
@@ -1190,7 +1319,7 @@ class FacturaApp(ctk.CTk):
                                 max_nro = nro
         return max_nro + 1
 
-    def run_simulacion(self, datos):
+    def run_simulacion(self, datos, open_pdf=True):
         import datetime
         siguiente_nro = self._get_next_comprobante_nro()
         punto_venta = 3
@@ -1221,13 +1350,105 @@ class FacturaApp(ctk.CTk):
 
             self.log_message(f"[SIMULACION] PDF generado: {pdf_filename}")
 
-            if os.name == 'nt':
+            if open_pdf and os.name == 'nt':
                 os.startfile(pdf_path)
 
             return True
         except Exception as e:
             self.log_message(f"[SIMULACION] Error al generar PDF: {str(e)}")
             return False
+
+    def generar_preview_pdf(self, datos):
+        import datetime
+        siguiente_nro = self._get_next_comprobante_nro()
+        punto_venta = 3
+        cae = f"6423456789{siguiente_nro:04d}"
+        vto_cae = "20261231"
+        datos["fecha_emision"] = datetime.datetime.now().strftime("%d/%m/%Y")
+
+        import pdf_generator
+        temp_dir = tempfile.mkdtemp()
+        pdf_filename = f"Factura_A_{punto_venta:05d}_{siguiente_nro:08d}.pdf"
+        pdf_path = os.path.join(temp_dir, pdf_filename)
+        pdf_generator.generar_pdf_factura(datos, cae, vto_cae, siguiente_nro, pdf_path, punto_venta)
+
+        self.log_message(f"Vista previa generada: {pdf_filename}")
+        return pdf_path, siguiente_nro, punto_venta, cae, vto_cae
+
+    def show_preview_popup(self, pdf_path, datos, nro, pv, cae, vto):
+        popup = ctk.CTkToplevel(self)
+        popup.title(f"Vista Previa - Factura A {pv:05d}-{nro:08d}")
+        popup.geometry("850x700")
+        popup.transient(self)
+        popup.grab_set()
+        popup.lift()
+
+        popup._temp_dir = os.path.dirname(pdf_path)
+
+        header_text = f"Factura A {pv:05d}-{nro:08d} | CAE: {cae} | {datos['cliente_nombre']}"
+        ctk.CTkLabel(popup, text=header_text, font=ctk.CTkFont(size=14, weight="bold")).pack(pady=(10, 5))
+
+        frame_scroll = ctk.CTkScrollableFrame(popup)
+        frame_scroll.pack(fill="both", expand=True, padx=10, pady=5)
+
+        doc = fitz.open(pdf_path)
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            zoom = 750 / page.rect.width
+            pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
+            img_data = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            ctk_img = ctk.CTkImage(light_image=img_data, dark_image=img_data, size=(pix.width, pix.height))
+            label = ctk.CTkLabel(frame_scroll, image=ctk_img, text="")
+            label.pack(pady=5)
+            label._img_ref = ctk_img
+        doc.close()
+
+        frame_btn = ctk.CTkFrame(popup)
+        frame_btn.pack(fill="x", padx=10, pady=10)
+
+        btn_generar = ctk.CTkButton(
+            frame_btn, text="Generar Factura", height=40,
+            font=ctk.CTkFont(size=15, weight="bold"),
+            command=lambda: self.finalizar_desde_preview(popup, datos)
+        )
+        btn_generar.pack(side="right", padx=5)
+
+        btn_cancelar = ctk.CTkButton(
+            frame_btn, text="Cancelar", height=40,
+            command=lambda: self._cerrar_preview(popup),
+            fg_color="gray"
+        )
+        btn_cancelar.pack(side="right", padx=5)
+
+        popup.protocol("WM_DELETE_WINDOW", lambda: self._cerrar_preview(popup))
+        popup.bind("<Return>", lambda e: self.finalizar_desde_preview(popup, datos))
+        popup.after(50, lambda: btn_generar.focus_set())
+
+    def _cerrar_preview(self, popup):
+        temp_dir = getattr(popup, '_temp_dir', None)
+        popup.destroy()
+        self._preview_open = False
+        if temp_dir and os.path.exists(temp_dir):
+            try:
+                shutil.rmtree(temp_dir)
+            except:
+                pass
+
+    def finalizar_desde_preview(self, popup, datos):
+        temp_dir = getattr(popup, '_temp_dir', None)
+        popup.destroy()
+        self._preview_open = False
+        if temp_dir and os.path.exists(temp_dir):
+            try:
+                shutil.rmtree(temp_dir)
+            except:
+                pass
+        self._generating = True
+        self.btn_generar.configure(state="disabled")
+        self.log_message("--- Generando factura final ---")
+        t = threading.Thread(target=self.run_finalizar_thread, args=(datos,))
+        t.daemon = True
+        t.start()
 
     def get_data(self):
         cliente_seleccionado = self.combo_cliente.get()
@@ -1272,62 +1493,54 @@ class FacturaApp(ctk.CTk):
         return datos
 
     def on_generar_click(self):
-        if getattr(self, '_generating', False):
+        if getattr(self, '_generating', False) or getattr(self, '_preview_open', False):
             return
-        self._generating = True
-        self.btn_generar.configure(state="disabled")
+        self._preview_open = True
         datos = self.get_data()
         
         if not datos["fecha"]:
             self.log_message("Error: La fecha del remito es obligatoria.")
-            self._generating = False
-            self.btn_generar.configure(state="normal")
+            self._preview_open = False
             self.entry_fecha.focus_set()
             return
             
         if len(datos["remito"]) != 8:
             self.log_message("Error: El número de remito debe tener 8 dígitos.")
-            self._generating = False
-            self.btn_generar.configure(state="normal")
+            self._preview_open = False
             self.entry_remito.focus_set()
             return
             
         if not datos["cuit_cliente"] or len(datos["cuit_cliente"]) != 11:
             self.log_message("Error: El CUIT del cliente debe tener 11 dígitos.")
-            self._generating = False
-            self.btn_generar.configure(state="normal")
+            self._preview_open = False
             return
             
         if not datos["productos"]:
             self.log_message("Error: Debes cargar al menos un producto mayor a 0.")
-            self._generating = False
-            self.btn_generar.configure(state="normal")
+            self._preview_open = False
             return
             
-        self.log_message("--- Iniciando proceso de facturación ---")
+        self.log_message("--- Generando vista previa ---")
         if self.modo_prueba.get():
-            self.log_message("⚠ MODO PRUEBA ACTIVADO - No se generarán comprobantes reales en ARCA")
-        self.log_message(f"Remito: {datos['remito']} | Cliente: {datos['cuit_cliente']} | Sucursal: {datos['sucursal']}")
-        self.log_message(f"Productos a facturar: {len(datos['productos'])}")
+            self.log_message("⚠ MODO PRUEBA - Vista previa simulada")
         
-        # Ejecutar en un hilo separado para no bloquear la UI
-        t = threading.Thread(target=self.run_bot_thread, args=(datos,))
-        t.daemon = True
-        t.start()
-        
-    def run_bot_thread(self, datos):
+        try:
+            pdf_path, nro, pv, cae, vto = self.generar_preview_pdf(datos)
+            self.show_preview_popup(pdf_path, datos, nro, pv, cae, vto)
+        except Exception as e:
+            self.log_message(f"Error al generar vista previa: {str(e)}")
+            self._preview_open = False
+    
+    def run_finalizar_thread(self, datos):
         if self.modo_prueba.get():
-            resultado = self.run_simulacion(datos)
+            resultado = self.run_simulacion(datos, open_pdf=False)
         else:
             resultado = self.start_bot_callback(datos, self.log_message)
         if resultado:
             self.log_message("Proceso finalizado correctamente.")
-            # Solo avanzar campos si fue exitoso
             self.after(0, self.limpiar_campos)
         else:
             self.log_message("Proceso finalizado con errores.")
-        
-        # Rehabilitar botón y resetear flag en el hilo principal
         self.after(0, lambda: self.btn_generar.configure(state="normal"))
         self.after(0, lambda: setattr(self, '_generating', False))
         
@@ -1411,7 +1624,7 @@ class FacturaApp(ctk.CTk):
         self.after(0, lambda: self.btn_nota_credito.configure(state="normal"))
         self.after(0, lambda: setattr(self, '_generating', False))
 
-    def _run_nota_credito_simulacion(self, datos_original):
+    def _run_nota_credito_simulacion(self, datos_original, open_pdf=True):
         import datetime
         siguiente_nro = self._get_next_nota_credito_nro()
         punto_venta = 3
@@ -1449,7 +1662,7 @@ class FacturaApp(ctk.CTk):
             )
 
             self.log_message(f"[SIMULACION] PDF generado: {pdf_filename}")
-            if os.name == 'nt':
+            if open_pdf and os.name == 'nt':
                 os.startfile(pdf_path)
 
             return True
