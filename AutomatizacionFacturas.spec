@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('.env', '.'), ('config.json', '.'), ('certificado_real.crt', '.'), ('ClaveRealEmpresa.key', '.'), ('logo-factura.png', '.')]
+datas = [('config.json', '.'), ('logo-factura.png', '.')]
 binaries = []
 hiddenimports = []
 tmp_ret = collect_all('customtkinter')

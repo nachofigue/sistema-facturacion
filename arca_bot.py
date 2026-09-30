@@ -19,7 +19,7 @@ def get_condicion_iva_cliente(cuit_cliente, update_log_callback=None):
     key_path = os.getenv("KEY_PATH", "MiClaveDeArcaNachoFigue10")
     import sys
     if getattr(sys, 'frozen', False):
-        base_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+        base_dir = os.path.dirname(sys.executable)
     else:
         base_dir = os.path.dirname(os.path.abspath(__file__))
     cert_full = os.path.join(base_dir, cert_path)
@@ -71,7 +71,7 @@ def generar_factura(datos_remito, update_log_callback=None):
     
     import sys
     if getattr(sys, 'frozen', False):
-        base_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+        base_dir = os.path.dirname(sys.executable)
     else:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         
@@ -291,7 +291,7 @@ def generar_nota_credito(datos_original, update_log_callback=None):
 
     import sys
     if getattr(sys, 'frozen', False):
-        base_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+        base_dir = os.path.dirname(sys.executable)
     else:
         base_dir = os.path.dirname(os.path.abspath(__file__))
 

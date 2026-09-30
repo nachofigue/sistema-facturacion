@@ -7,7 +7,7 @@ from arca_bot import generar_factura, generar_nota_credito
 
 def main():
     if getattr(sys, 'frozen', False):
-        base_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+        base_dir = os.path.dirname(sys.executable)
     else:
         base_dir = os.path.dirname(os.path.abspath(__file__))
     load_dotenv(os.path.join(base_dir, '.env'))
