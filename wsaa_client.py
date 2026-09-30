@@ -69,20 +69,22 @@ class WSAAClient:
 
     def get_ticket(self, service="wsfe"):
         # 1. Verificar si hay un ticket válido en caché
+        cache_data = {}
         if os.path.exists(self.cache_file):
             try:
                 with open(self.cache_file, "r") as f:
-                    cache = json.load(f)
+                    cache_data = json.load(f)
                 
-                exp_str = cache.get("expiration_time")
-                if exp_str:
-                    exp_time = datetime.datetime.fromisoformat(exp_str)
-                    # Asegurar que ambas fechas no tengan zona horaria para evitar TypeError
-                    exp_time = exp_time.replace(tzinfo=None)
-                    
-                    # Dejar 10 minutos de margen de seguridad
-                    if datetime.datetime.now() < (exp_time - datetime.timedelta(minutes=10)):
-                        return cache["token"], cache["sign"]
+                if service in cache_data:
+                    cache = cache_data[service]
+                    exp_str = cache.get("expiration_time")
+                    if exp_str:
+                        exp_time = datetime.datetime.fromisoformat(exp_str)
+                        exp_time = exp_time.replace(tzinfo=None)
+                        
+                        # Dejar 10 minutos de margen de seguridad
+                        if datetime.datetime.now() < (exp_time - datetime.timedelta(minutes=10)):
+                            return cache["token"], cache["sign"]
             except Exception:
                 pass # Si el caché falla por algún motivo, ignorar y pedir uno nuevo
 
@@ -99,11 +101,13 @@ class WSAAClient:
         # 3. Guardar el ticket en caché con 11 horas de validez desde ahora
         exp_time = datetime.datetime.now() + datetime.timedelta(hours=11)
         
+        cache_data[service] = {
+            "token": token,
+            "sign": sign,
+            "expiration_time": exp_time.isoformat()
+        }
+        
         with open(self.cache_file, "w") as f:
-            json.dump({
-                "token": token,
-                "sign": sign,
-                "expiration_time": exp_time.isoformat()
-            }, f)
+            json.dump(cache_data, f)
         
         return token, sign

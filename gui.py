@@ -2023,7 +2023,7 @@ class FacturaApp(ctk.CTk):
     def check_for_updates(self):
         import json
         try:
-            url = "https://api.github.com/repos/nachofigue/automatizacion-facturas/releases/latest"
+            url = "https://api.github.com/repos/nachofigue/sistema-facturacion/releases/latest"
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req) as response:
                 data = json.loads(response.read().decode())

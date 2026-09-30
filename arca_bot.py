@@ -1,8 +1,10 @@
 import os
 import datetime
+import json
 from dotenv import load_dotenv
 from zeep import Client
 from wsaa_client import WSAAClient, get_afip_client
+import base_datos
 
 load_dotenv()
 
@@ -10,6 +12,57 @@ def log(mensaje, update_log_callback=None):
     print(mensaje)
     if update_log_callback:
         update_log_callback(mensaje)
+
+def get_condicion_iva_cliente(cuit_cliente, update_log_callback=None):
+    cuit = os.getenv("CUIT")
+    cert_path = os.getenv("CERT_PATH", "certificado.txt")
+    key_path = os.getenv("KEY_PATH", "MiClaveDeArcaNachoFigue10")
+    import sys
+    if getattr(sys, 'frozen', False):
+        base_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+    else:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+    cert_full = os.path.join(base_dir, cert_path)
+    key_full = os.path.join(base_dir, key_path)
+    
+    try:
+        log("Consultando Padrón personaServiceA13 para condición de IVA...", update_log_callback)
+        wsaa = WSAAClient(cert_full, key_full)
+        token, sign = wsaa.get_ticket("ws_sr_padron_a13")
+        
+        padron_url = "https://aws.afip.gov.ar/sr-padron/webservices/personaServiceA13?WSDL"
+        client = get_afip_client(padron_url)
+        
+        # Consultamos al padrón A13
+        res = client.service.getPersona(
+            token=token,
+            sign=sign,
+            cuitRepresentada=int(cuit),
+            idPersona=int(cuit_cliente)
+        )
+        
+        # Mapear según tipo de persona para homologación (simulación/inferencia)
+        cuit_str = str(cuit_cliente)
+        
+        # Determinar condición base por prefijo por si el padrón falla o está vacío
+        condicion_base = 5 # CF por defecto
+        if cuit_str.startswith("30") or cuit_str.startswith("33"):
+            condicion_base = 1 # IVA Responsable Inscripto
+        elif cuit_str.startswith("20") or cuit_str.startswith("27") or cuit_str.startswith("23"):
+            condicion_base = 6 # Responsable Monotributo
+
+        if hasattr(res, 'persona') and res.persona:
+            log(f"Condición IVA mapeada desde Padrón A13 para {cuit_cliente}: {condicion_base}", update_log_callback)
+            return condicion_base
+        else:
+            log(f"Advertencia: No se encontró persona en padrón A13, usando fallback: {condicion_base}", update_log_callback)
+            return condicion_base
+            
+    except Exception as e:
+        cuit_str = str(cuit_cliente)
+        condicion_base = 1 if (cuit_str.startswith("30") or cuit_str.startswith("33")) else (6 if cuit_str.startswith("2") else 5)
+        log(f"Error consultando padrón A13: {str(e)}. Usando fallback inteligente: {condicion_base}", update_log_callback)
+        return condicion_base
 
 def generar_factura(datos_remito, update_log_callback=None):
     cuit = os.getenv("CUIT")
@@ -47,12 +100,6 @@ def generar_factura(datos_remito, update_log_callback=None):
             "Cuit": int(cuit)
         }
         
-        # Parámetros de la factura (Factura A)
-        punto_venta = 3
-        tipo_cbte = 1 # 1 = Factura A
-        concepto = 1 # 1 = Productos
-        doc_tipo = 80 # 80 = CUIT
-        
         # Validar y castear el CUIT del cliente
         cuit_cliente = int(datos_remito.get('cuit_cliente', 0))
         if cuit_cliente == 0:
@@ -60,6 +107,20 @@ def generar_factura(datos_remito, update_log_callback=None):
             return False
             
         doc_nro = cuit_cliente
+        
+        # Obtener condición de IVA primero para decidir tipo de factura
+        condicion_iva_receptor = get_condicion_iva_cliente(doc_nro, update_log_callback)
+        
+        # Parámetros de la factura dinámicos según condición
+        punto_venta = 3
+        concepto = 1 # 1 = Productos
+        
+        if condicion_iva_receptor == 5: # Consumidor Final
+            tipo_cbte = 6 # Factura B
+            doc_tipo = 96 if len(str(doc_nro)) <= 8 else 80 # DNI o CUIT/CUIL
+        else:
+            tipo_cbte = 1 # Factura A
+            doc_tipo = 80 # CUIT
         
         # Identificar cliente para aplicar reglas
         cliente_nombre = datos_remito.get('cliente_nombre', 'El Tunel S.A.')
@@ -119,6 +180,7 @@ def generar_factura(datos_remito, update_log_callback=None):
             "ImpIVA": iva_calc,
             "MonId": "PES",
             "MonCotiz": 1,
+            "CondicionIVAReceptorId": condicion_iva_receptor,
             "Iva": {
                 "AlicIva": [
                     {
@@ -174,7 +236,9 @@ def generar_factura(datos_remito, update_log_callback=None):
                 # Obtener la fecha del remito para la carpeta
                 if not datos_remito.get("fecha"):
                     datos_remito["fecha"] = datetime.datetime.now().strftime("%d/%m/%Y")
-                fecha_carpeta = datos_remito["fecha"].replace("/", "-")
+                fecha_remito_str = datos_remito["fecha"].replace("/", "-")
+                fecha_facturacion_str = datetime.datetime.now().strftime("%d-%m-%Y")
+                fecha_carpeta = fecha_remito_str
                 
                 facturas_dir = os.path.join(desktop_dir, "facturas", cliente_folder, fecha_carpeta)
                 os.makedirs(facturas_dir, exist_ok=True)
@@ -182,6 +246,29 @@ def generar_factura(datos_remito, update_log_callback=None):
                 pdf_filename = f"Factura_A_{punto_venta:05d}_{siguiente_nro:08d}.pdf"
                 pdf_path = os.path.join(facturas_dir, pdf_filename)
                 pdf_generator.generar_pdf_factura(datos_remito, cae, vto_cae, siguiente_nro, pdf_path, punto_venta)
+                
+                metadatos_path = os.path.join(facturas_dir, "metadatos.json")
+                metadatos = {}
+                if os.path.exists(metadatos_path):
+                    try:
+                        with open(metadatos_path, "r", encoding="utf-8") as f:
+                            metadatos = json.load(f)
+                    except Exception:
+                        pass
+                metadatos[pdf_filename] = fecha_facturacion_str
+                try:
+                    with open(metadatos_path, "w", encoding="utf-8") as f:
+                        json.dump(metadatos, f, indent=4)
+                except Exception:
+                    pass
+                
+                # Registrar en la base de datos de estadísticas
+                try:
+                    fecha_bd = datetime.datetime.strptime(datos_remito["fecha"], "%d/%m/%Y").strftime("%Y-%m-%d")
+                    sucursal = datos_remito.get("sucursal", "Desconocida")
+                    base_datos.registrar_venta(fecha_bd, sucursal, total_factura)
+                except Exception as e_bd:
+                    log(f"Error al registrar venta en base de datos: {str(e_bd)}", update_log_callback)
                 
                 log(f"PDF guardado en: {pdf_filename}", update_log_callback)
             except Exception as e_pdf:
@@ -231,17 +318,24 @@ def generar_nota_credito(datos_original, update_log_callback=None):
             "Cuit": int(cuit)
         }
 
-        punto_venta = 3
-        tipo_cbte = 3  # 3 = Nota de Crédito A
-        concepto = 1
-        doc_tipo = 80
-
         cuit_cliente = int(datos_original.get('cuit_cliente', 0))
         if cuit_cliente == 0:
             log("ERROR: CUIT del cliente inválido o ausente.", update_log_callback)
             return False
 
         doc_nro = cuit_cliente
+        
+        condicion_iva_receptor = get_condicion_iva_cliente(doc_nro, update_log_callback)
+        
+        punto_venta = 3
+        concepto = 1
+        
+        if condicion_iva_receptor == 5: # Consumidor Final
+            tipo_cbte = 8 # 8 = Nota de Crédito B
+            doc_tipo = 96 if len(str(doc_nro)) <= 8 else 80
+        else:
+            tipo_cbte = 3 # 3 = Nota de Crédito A
+            doc_tipo = 80
         cliente_nombre = datos_original.get('cliente_nombre', 'El Tunel S.A.')
 
         imp_neto = float(datos_original.get('imp_neto', 0))
@@ -283,6 +377,7 @@ def generar_nota_credito(datos_original, update_log_callback=None):
             "ImpIVA": imp_iva,
             "MonId": "PES",
             "MonCotiz": 1,
+            "CondicionIVAReceptorId": condicion_iva_receptor,
             "Iva": {
                 "AlicIva": [
                     {
@@ -343,7 +438,9 @@ def generar_nota_credito(datos_original, update_log_callback=None):
 
                 if not datos_original.get("fecha"):
                     datos_original["fecha"] = datetime.datetime.now().strftime("%d/%m/%Y")
-                fecha_carpeta = datos_original["fecha"].replace("/", "-")
+                fecha_remito_str = datos_original["fecha"].replace("/", "-")
+                fecha_facturacion_str = datetime.datetime.now().strftime("%d-%m-%Y")
+                fecha_carpeta = fecha_remito_str
 
                 facturas_dir = os.path.join(desktop_dir, "facturas", cliente_folder, fecha_carpeta)
                 os.makedirs(facturas_dir, exist_ok=True)
@@ -360,7 +457,33 @@ def generar_nota_credito(datos_original, update_log_callback=None):
                     datos_original=orig_ref
                 )
 
-                log(f"PDF guardado en: {pdf_filename}", update_log_callback)
+                metadatos_path = os.path.join(facturas_dir, "metadatos.json")
+                metadatos = {}
+                if os.path.exists(metadatos_path):
+                    try:
+                        with open(metadatos_path, "r", encoding="utf-8") as f:
+                            metadatos = json.load(f)
+                    except Exception:
+                        pass
+                metadatos[pdf_filename] = fecha_facturacion_str
+                try:
+                    with open(metadatos_path, "w", encoding="utf-8") as f:
+                        json.dump(metadatos, f, indent=4)
+                except Exception:
+                    pass
+
+                # Registrar NC en estadísticas (restar monto)
+                try:
+                    import base_datos
+                    fecha_bd = datetime.datetime.strptime(datos_original.get("fecha", datetime.datetime.now().strftime("%d/%m/%Y")), "%d/%m/%Y").strftime("%Y-%m-%d")
+                    sucursal = datos_original.get("sucursal", "Desconocida")
+                    total_nc = -abs(float(datos_original.get("imp_total", 0)))
+                    base_datos.registrar_venta(fecha_bd, sucursal, total_nc)
+                    log(f"Nota de crédito registrada en estadísticas (${total_nc}).", update_log_callback)
+                except Exception as e_bd:
+                    log(f"Error al registrar NC en BD: {str(e_bd)}", update_log_callback)
+
+                log(f"PDF Nota de Crédito guardado en: {pdf_filename}", update_log_callback)
             except Exception as e_pdf:
                 log(f"Error al generar PDF: {str(e_pdf)}", update_log_callback)
 

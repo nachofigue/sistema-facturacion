@@ -188,6 +188,11 @@ def generar_pdf_factura(datos_factura, cae, vto_cae, nro_comprobante, output_pat
         c.setFont("Helvetica", 9)
         c.drawString(width/2 + 25, m_top - 245, remito_str)
         
+        c.setFont("Helvetica-Bold", 9)
+        c.drawString(width/2 + 115, m_top - 245, "Fecha: ")
+        c.setFont("Helvetica", 9)
+        c.drawString(width/2 + 150, m_top - 245, str(datos_factura.get("fecha", "")))
+        
         # ---------- GRILLA PRODUCTOS ----------
         y_grid_top = m_top - 270
         
@@ -508,6 +513,11 @@ def generar_pdf_nota_credito(datos_factura, cae, vto_cae, nro_comprobante, outpu
         c.drawString(width/2 - 18, m_top - 245, "Remito: ")
         c.setFont("Helvetica", 9)
         c.drawString(width/2 + 25, m_top - 245, remito_str)
+        
+        c.setFont("Helvetica-Bold", 9)
+        c.drawString(width/2 + 115, m_top - 245, "Fecha: ")
+        c.setFont("Helvetica", 9)
+        c.drawString(width/2 + 150, m_top - 245, str(datos_original.get("fecha", "")))
 
         if datos_original:
             c.setFont("Helvetica-Bold", 8)
