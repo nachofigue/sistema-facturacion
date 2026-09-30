@@ -17,3 +17,16 @@ MiPedidoCSR
 
 # Carpetas de datos locales
 Facturas_Emitidas/
+
+# Claves y Certificados
+*.key
+*.crt
+*.csr
+
+# Bases y Caches
+*.db
+*_cache.json
+
+# Compilacion
+build/
+dist/
