@@ -1,0 +1,48 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Set Version and Build
+        run: |
+          $VERSION = "1.0.${{ github.run_number }}"
+          echo "VERSION_TAG=v$VERSION" >> $env:GITHUB_ENV
+          
+          # Reemplazar la version en gui.py para el actualizador interno
+          (Get-Content gui.py) -replace 'APP_VERSION = ".*"', "APP_VERSION = `"$VERSION`"" | Set-Content gui.py
+          
+          # Construir ejecutable (el spec ya fue configurado en onefile)
+          python -m PyInstaller AutomatizacionFacturas.spec --noconfirm
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION_TAG }}
+          name: Actualizacion ${{ env.VERSION_TAG }}
+          files: dist/AutomatizacionFacturas.exe
+          body: "Versión autogenerada al subir cambios a GitHub."
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
