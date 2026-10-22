@@ -4,8 +4,10 @@ from PyInstaller.utils.hooks import collect_all
 datas = [('config.json', '.'), ('logo-factura.png', '.')]
 binaries = []
 hiddenimports = []
-tmp_ret = collect_all('customtkinter')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+
+for pkg in ['customtkinter', 'fitz', 'pymupdf']:
+    tmp_ret = collect_all(pkg)
+    datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(
@@ -39,7 +41,6 @@ exe = EXE(
     runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,
-    argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,

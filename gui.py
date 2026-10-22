@@ -2166,9 +2166,12 @@ class FacturaApp(ctk.CTk):
                 
                 bat_path = os.path.join(os.path.dirname(exe_path), "update.bat")
                 bat_content = f"""@echo off
-timeout /t 2 /nobreak > NUL
-del "{exe_path}"
-ren "{update_exe_path}" "{os.path.basename(exe_path)}"
+:wait_close
+timeout /t 1 /nobreak > NUL
+del "{exe_path}" > NUL 2>&1
+if exist "{exe_path}" goto wait_close
+move /y "{update_exe_path}" "{exe_path}" > NUL 2>&1
+timeout /t 1 /nobreak > NUL
 start "" "{exe_path}"
 del "%~f0"
 """
