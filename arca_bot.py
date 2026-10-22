@@ -135,6 +135,10 @@ def generar_factura(datos_remito, update_log_callback=None):
             bonificacion = 0.11
             tasa_iva = 0.105
             id_iva = 4 # AFIP 10.5%
+        elif cliente_nombre == "Delca":
+            bonificacion = 0.0
+            tasa_iva = 0.105
+            id_iva = 4 # AFIP 10.5%
         else: # El Tunel S.A.
             bonificacion = 0.0
             tasa_iva = 0.105
@@ -231,7 +235,12 @@ def generar_factura(datos_remito, update_log_callback=None):
                 
                 # Crear carpeta en el escritorio si no existe
                 desktop_dir = os.path.join(os.path.expanduser("~"), "Desktop")
-                cliente_folder = "kilbel" if cliente_nombre == "Kilbel" else "tunel"
+                if cliente_nombre == "Kilbel":
+                    cliente_folder = "kilbel"
+                elif cliente_nombre == "Delca":
+                    cliente_folder = "delca"
+                else:
+                    cliente_folder = "tunel"
                 
                 # Obtener la fecha del remito para la carpeta
                 if not datos_remito.get("fecha"):
@@ -434,7 +443,12 @@ def generar_nota_credito(datos_original, update_log_callback=None):
                 log("Dibujando Nota de Crédito PDF...", update_log_callback)
 
                 desktop_dir = os.path.join(os.path.expanduser("~"), "Desktop")
-                cliente_folder = "kilbel" if cliente_nombre == "Kilbel" else "tunel"
+                if cliente_nombre == "Kilbel":
+                    cliente_folder = "kilbel"
+                elif cliente_nombre == "Delca":
+                    cliente_folder = "delca"
+                else:
+                    cliente_folder = "tunel"
 
                 if not datos_original.get("fecha"):
                     datos_original["fecha"] = datetime.datetime.now().strftime("%d/%m/%Y")

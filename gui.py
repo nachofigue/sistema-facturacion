@@ -79,6 +79,10 @@ class FacturaApp(ctk.CTk):
             "Juan De Garay 3321 - Santa Fe, Santa Fe",
             "Remolcador Meteoro 2760 Piso:DIQII Dpto:25 - Santa Fe, Santa Fe"
         ]
+
+        self.sucursales_delca = [
+            "Avda General Paz 5374 - Santa Fe, Santa Fe"
+        ]
         
         # Grid layout (2 columnas, 2 filas principales)
         self.grid_columnconfigure(0, weight=1)
@@ -164,7 +168,7 @@ class FacturaApp(ctk.CTk):
         
         # Cliente (Dropdown)
         ctk.CTkLabel(self.frame_general, text="Cliente").pack(anchor="w", padx=20)
-        self.combo_cliente = ctk.CTkComboBox(self.frame_general, values=["El Tunel S.A.", "Kilbel"], border_width=2, border_color="#565656")
+        self.combo_cliente = ctk.CTkComboBox(self.frame_general, values=["El Tunel S.A.", "Kilbel", "Delca"], border_width=2, border_color="#565656")
         self.combo_cliente.pack(fill="x", padx=20, pady=(0, 15))
         # Bindear Enter en el combobox para autocompletar 'k' y 't'
         if hasattr(self.combo_cliente, "_entry"):
@@ -279,6 +283,9 @@ class FacturaApp(ctk.CTk):
         )
         self.switch_modo_prueba.place(relx=0.0, x=20, y=10, anchor="nw")
 
+        self.btn_check_updates = ctk.CTkButton(self, text="Buscar Actualización", width=140, height=28, command=lambda: threading.Thread(target=self.check_for_updates, args=(True,), daemon=True).start(), fg_color="#2b5278", hover_color="#1b3b5a")
+        self.btn_check_updates.place(relx=0.88, y=15, anchor="ne")
+
         self.btn_toggle_console = ctk.CTkButton(self, text="Mostrar Consola", width=120, height=28, command=self.toggle_console)
         self.btn_toggle_console.place(relx=0.98, y=15, anchor="ne")
         
@@ -315,6 +322,7 @@ class FacturaApp(ctk.CTk):
         header_frame = ctk.CTkFrame(self.frame_precios, fg_color="transparent")
         header_frame.pack(fill="x", padx=10, pady=(0, 10))
         ctk.CTkLabel(header_frame, text="PRODUCTO", width=200, anchor="w", font=ctk.CTkFont(weight="bold")).pack(side="left", padx=10)
+        ctk.CTkLabel(header_frame, text="DELCA", width=100, anchor="center", font=ctk.CTkFont(weight="bold")).pack(side="right", padx=10)
         ctk.CTkLabel(header_frame, text="KILBEL", width=100, anchor="center", font=ctk.CTkFont(weight="bold")).pack(side="right", padx=10)
         ctk.CTkLabel(header_frame, text="TUNEL", width=100, anchor="center", font=ctk.CTkFont(weight="bold")).pack(side="right", padx=10)
 
@@ -326,6 +334,10 @@ class FacturaApp(ctk.CTk):
                 
                 ctk.CTkLabel(row_frame, text=prod["nombre"].upper(), width=200, anchor="w").pack(side="left", padx=10)
                 
+                entry_delca = ctk.CTkEntry(row_frame, width=100, justify="center")
+                entry_delca.insert(0, str(prod.get("precio_delca", prod.get("precio_tunel", prod.get("precio", 0)))))
+                entry_delca.pack(side="right", padx=10)
+
                 entry_kilbel = ctk.CTkEntry(row_frame, width=100, justify="center")
                 entry_kilbel.insert(0, str(prod.get("precio_kilbel", prod.get("precio", 0))))
                 entry_kilbel.pack(side="right", padx=10)
@@ -337,7 +349,8 @@ class FacturaApp(ctk.CTk):
                 self.precio_entries.append({
                     "data": prod, 
                     "widget_tunel": entry_tunel,
-                    "widget_kilbel": entry_kilbel
+                    "widget_kilbel": entry_kilbel,
+                    "widget_delca": entry_delca
                 })
                 
         self.btn_guardar_precios = ctk.CTkButton(self.tab_precios, text="Guardar Cambios", command=self.guardar_precios)
@@ -363,7 +376,7 @@ class FacturaApp(ctk.CTk):
         top_frame.grid_columnconfigure(7, weight=1)
 
         ctk.CTkLabel(top_frame, text="Cliente:").grid(row=0, column=0, padx=5, pady=5)
-        self.combo_archivo_cliente = ctk.CTkComboBox(top_frame, values=["-", "El Tunel S.A.", "Kilbel"], command=self.on_archivo_cliente_change)
+        self.combo_archivo_cliente = ctk.CTkComboBox(top_frame, values=["-", "El Tunel S.A.", "Kilbel", "Delca"], command=self.on_archivo_cliente_change)
         self.combo_archivo_cliente.set("-")
         self.combo_archivo_cliente.grid(row=0, column=1, padx=5, pady=5)
 
@@ -475,7 +488,7 @@ class FacturaApp(ctk.CTk):
         frame_filtros.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
 
         ctk.CTkLabel(frame_filtros, text="Sucursal:").pack(side="left", padx=5)
-        todas_sucursales = ["Todas"] + self.sucursales_tunel + self.sucursales_kilbel
+        todas_sucursales = ["Todas"] + self.sucursales_tunel + self.sucursales_kilbel + self.sucursales_delca
         self.combo_est_sucursal = ctk.CTkComboBox(frame_filtros, values=todas_sucursales, width=300)
         self.combo_est_sucursal.pack(side="left", padx=5)
 
@@ -676,8 +689,10 @@ class FacturaApp(ctk.CTk):
 
         self.archivo_tree.tag_configure("TUNEL", foreground="#e74c3c")
         self.archivo_tree.tag_configure("KILBEL", foreground="#2ecc71")
+        self.archivo_tree.tag_configure("DELCA", foreground="#f1c40f")
         self.archivo_tree.tag_configure("TUNEL_NC", foreground="#ff4444")
         self.archivo_tree.tag_configure("KILBEL_NC", foreground="#2ecc71")
+        self.archivo_tree.tag_configure("DELCA_NC", foreground="#f1c40f")
 
         import os, json
         from datetime import datetime
@@ -761,8 +776,15 @@ class FacturaApp(ctk.CTk):
                     total = self._extraer_total_pdf(ruta_pdf)
                     total_str = f"${total:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if total else ""
                     
-                    etiqueta = "TUNEL" if "tunel" in cliente_key.lower() else "KILBEL"
-                    etiqueta_nc = "TUNEL_NC" if "tunel" in cliente_key.lower() else "KILBEL_NC"
+                    if "delca" in cliente_key.lower():
+                        etiqueta = "DELCA"
+                        etiqueta_nc = "DELCA_NC"
+                    elif "kilbel" in cliente_key.lower():
+                        etiqueta = "KILBEL"
+                        etiqueta_nc = "KILBEL_NC"
+                    else:
+                        etiqueta = "TUNEL"
+                        etiqueta_nc = "TUNEL_NC"
                     
                     txt = pdf
                     tag_a_usar = etiqueta
@@ -841,8 +863,15 @@ class FacturaApp(ctk.CTk):
             
         # Normal view by client (grouped by F. Facturación)
         for c_key in sorted(all_data.keys()):
-            cliente_folder = "kilbel" if "kilbel" in c_key.lower() else "tunel"
-            if cliente not in ("-", "") and cliente_folder != ("kilbel" if cliente == "Kilbel" else "tunel"):
+            if "delca" in c_key.lower():
+                cliente_folder = "delca"
+            elif "kilbel" in c_key.lower():
+                cliente_folder = "kilbel"
+            else:
+                cliente_folder = "tunel"
+
+            filtro_folder = "delca" if cliente == "Delca" else ("kilbel" if cliente == "Kilbel" else "tunel")
+            if cliente not in ("-", "") and cliente_folder != filtro_folder:
                 continue
             
             cliente_id = self.archivo_tree.insert("", "end", text=c_key.upper(), open=True)
@@ -912,6 +941,8 @@ class FacturaApp(ctk.CTk):
                 cliente_folder = "tunel"
             elif cliente_texto == "KILBEL":
                 cliente_folder = "kilbel"
+            elif cliente_texto == "DELCA":
+                cliente_folder = "delca"
             else:
                 return None
             ruta = os.path.join(os.path.expanduser("~"), "Desktop", "facturas", cliente_folder, fecha_texto)
@@ -1019,6 +1050,9 @@ class FacturaApp(ctk.CTk):
         if "kilbel" in ruta.lower():
             datos["cliente_nombre"] = "Kilbel"
             datos["cuit_cliente"] = "30681989567"
+        elif "delca" in ruta.lower():
+            datos["cliente_nombre"] = "Delca"
+            datos["cuit_cliente"] = "30564813369"
         elif "tunel" in ruta.lower():
             datos["cliente_nombre"] = "El Tunel S.A."
             datos["cuit_cliente"] = "30518084557"
@@ -1226,9 +1260,9 @@ class FacturaApp(ctk.CTk):
         import re
         desktop = os.path.join(os.path.expanduser("~"), "Desktop")
         base_path = os.path.join(desktop, "facturas")
-        datos_por_cliente = {"Kilbel": [], "Tunel": []}
+        datos_por_cliente = {"Kilbel": [], "Tunel": [], "Delca": []}
 
-        for cliente_nombre, carpeta in [("Kilbel", "kilbel"), ("Tunel", "tunel")]:
+        for cliente_nombre, carpeta in [("Kilbel", "kilbel"), ("Tunel", "tunel"), ("Delca", "delca")]:
             ruta_fecha = os.path.join(base_path, carpeta, fecha)
             if not os.path.isdir(ruta_fecha):
                 continue
@@ -1298,6 +1332,8 @@ class FacturaApp(ctk.CTk):
                     prod["precio_tunel"] = nuevo_precio_tunel
                     nuevo_precio_kilbel = float(p["widget_kilbel"].get().strip())
                     prod["precio_kilbel"] = nuevo_precio_kilbel
+                    nuevo_precio_delca = float(p["widget_delca"].get().strip())
+                    prod["precio_delca"] = nuevo_precio_delca
                 except ValueError:
                     self.log_message(f"Error: Precio inválido para {prod['nombre']}")
                     return
@@ -1317,6 +1353,7 @@ class FacturaApp(ctk.CTk):
                     if p_fac["data"]["codigo_arca"] == n_prod["codigo_arca"]:
                         p_fac["data"]["precio_tunel"] = n_prod["precio_tunel"]
                         p_fac["data"]["precio_kilbel"] = n_prod["precio_kilbel"]
+                        p_fac["data"]["precio_delca"] = n_prod["precio_delca"]
                         
             self.log_message("Precios actualizados y guardados correctamente.")
         else:
@@ -1331,7 +1368,7 @@ class FacturaApp(ctk.CTk):
         fecha_str = f"{fecha_hoy.day:02d}-{fecha_hoy.month:02d}"
         desktop = os.path.join(os.path.expanduser("~"), "Desktop")
         
-        for cliente, key in [("Tunel", "widget_tunel"), ("Kilbel", "widget_kilbel")]:
+        for cliente, key in [("Tunel", "widget_tunel"), ("Kilbel", "widget_kilbel"), ("Delca", "widget_delca")]:
             nombre_archivo = f"lista de precios {cliente} ({fecha_str}).pdf"
             ruta_pdf = os.path.join(desktop, nombre_archivo)
 
@@ -1432,6 +1469,8 @@ class FacturaApp(ctk.CTk):
             sucursales = self.sucursales_tunel
         elif cliente == "Kilbel":
             sucursales = self.sucursales_kilbel
+        elif cliente == "Delca":
+            sucursales = self.sucursales_delca
         else:
             self.label_sucursal_match.configure(text="")
             self.current_sucursal_matches = []
@@ -1443,7 +1482,9 @@ class FacturaApp(ctk.CTk):
             self.current_sucursal_matches = []
             return
             
-        if cliente == "Kilbel" and texto == "pue":
+        if cliente == "Delca":
+            matches = self.sucursales_delca
+        elif cliente == "Kilbel" and texto == "pue":
             matches = ["Remolcador Meteoro 2760 Piso:DIQII Dpto:25 - Santa Fe, Santa Fe"]
         elif cliente == "Kilbel" and texto == "la":
             matches = ["San Jose 2629 - Santa Fe, Santa Fe"]
@@ -1469,6 +1510,9 @@ class FacturaApp(ctk.CTk):
             self.label_sucursal_match.configure(text="Sin coincidencias", text_color="red")
 
     def handle_sucursal_enter(self, event, next_widget):
+        cliente = self.combo_cliente.get()
+        if cliente == "Delca" and (not hasattr(self, 'current_sucursal_matches') or len(self.current_sucursal_matches) == 0):
+            self.current_sucursal_matches = self.sucursales_delca
         if hasattr(self, 'current_sucursal_matches') and len(self.current_sucursal_matches) > 0:
             self.entry_sucursal.delete(0, "end")
             self.entry_sucursal.insert(0, self.current_sucursal_matches[0])
@@ -1480,17 +1524,25 @@ class FacturaApp(ctk.CTk):
 
     def handle_cliente_enter(self, event):
         val = self.combo_cliente.get().strip()
-        if val == "k" or val == "K":
+        if val.lower() == "k" or val.lower() == "kilbel":
             self.combo_cliente.set("Kilbel")
             val = "Kilbel"
-        elif val == "t" or val == "T":
+        elif val.lower() == "t" or val.lower() == "tunel" or val.lower() == "el tunel":
             self.combo_cliente.set("El Tunel S.A.")
             val = "El Tunel S.A."
+        elif val.lower() == "d" or val.lower() == "delca":
+            self.combo_cliente.set("Delca")
+            val = "Delca"
+            # Auto-asignar la única sucursal de Delca
+            self.entry_sucursal.delete(0, "end")
+            self.entry_sucursal.insert(0, self.sucursales_delca[0])
+            self.current_sucursal_matches = self.sucursales_delca
+            self.label_sucursal_match.configure(text="")
             
-        if val in ("Kilbel", "El Tunel S.A."):
+        if val in ("Kilbel", "El Tunel S.A.", "Delca"):
             self.focus_next_widget(self.entry_sucursal)
         else:
-            self.log_message("Debés seleccionar 'Kilbel' o 'El Tunel S.A.' como cliente.")
+            self.log_message("Debés seleccionar 'Kilbel', 'El Tunel S.A.' o 'Delca' como cliente.")
         return "break"
     def handle_product_enter(self, event, current_widget, next_widget):
         val = current_widget.get().strip()
@@ -1601,7 +1653,12 @@ class FacturaApp(ctk.CTk):
             import pdf_generator
             desktop_dir = os.path.join(os.path.expanduser("~"), "Desktop")
             cliente_nombre = datos.get("cliente_nombre", "")
-            cliente_folder = "kilbel" if cliente_nombre == "Kilbel" else "tunel"
+            if cliente_nombre == "Kilbel":
+                cliente_folder = "kilbel"
+            elif cliente_nombre == "Delca":
+                cliente_folder = "delca"
+            else:
+                cliente_folder = "tunel"
 
             if not datos.get("fecha"):
                 datos["fecha"] = datetime.datetime.now().strftime("%d/%m/%Y")
@@ -1757,7 +1814,8 @@ class FacturaApp(ctk.CTk):
         cliente_seleccionado = self.combo_cliente.get()
         cuit_map = {
             "El Tunel S.A.": "30518084557",
-            "Kilbel": "30681989567"
+            "Kilbel": "30681989567",
+            "Delca": "30564813369"
         }
         
         datos = {
@@ -1787,6 +1845,8 @@ class FacturaApp(ctk.CTk):
                         precio = p["data"].get("precio_tunel", p["data"].get("precio", 0))
                     elif cliente_seleccionado == "Kilbel":
                         precio = p["data"].get("precio_kilbel", p["data"].get("precio", 0))
+                    elif cliente_seleccionado == "Delca":
+                        precio = p["data"].get("precio_delca", p["data"].get("precio_tunel", p["data"].get("precio", 0)))
                     else:
                         precio = p["data"].get("precio", 0)
 
@@ -1950,7 +2010,12 @@ class FacturaApp(ctk.CTk):
             import pdf_generator
             desktop_dir = os.path.join(os.path.expanduser("~"), "Desktop")
             cliente_nombre = datos_original.get("cliente_nombre", "")
-            cliente_folder = "kilbel" if cliente_nombre == "Kilbel" else "tunel"
+            if cliente_nombre == "Kilbel":
+                cliente_folder = "kilbel"
+            elif cliente_nombre == "Delca":
+                cliente_folder = "delca"
+            else:
+                cliente_folder = "tunel"
 
             if not datos_original.get("fecha"):
                 datos_original["fecha"] = datetime.datetime.now().strftime("%d/%m/%Y")
@@ -2020,8 +2085,10 @@ class FacturaApp(ctk.CTk):
         except:
             return False
 
-    def check_for_updates(self):
+    def check_for_updates(self, manual=False):
         import json
+        if manual:
+            self.after(0, lambda: self.log_message("Buscando actualizaciones..."))
         try:
             url = "https://api.github.com/repos/nachofigue/sistema-facturacion/releases/latest"
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -2040,9 +2107,15 @@ class FacturaApp(ctk.CTk):
                         break
                 
                 if download_url:
-                    self.after(2000, lambda: self.show_update_popup(latest_version, download_url))
+                    self.after(500 if manual else 2000, lambda: self.show_update_popup(latest_version, download_url))
+                elif manual:
+                    self.after(0, lambda: messagebox.showinfo("Actualizaciones", f"Hay una versión más nueva ({latest_version}), pero no se encontró el instalador .exe."))
+            elif manual:
+                self.after(0, lambda: messagebox.showinfo("Actualizaciones", f"El sistema ya está actualizado a la última versión disponible ({current_version})."))
         except Exception as e:
-            pass # Falla silenciosamente si no hay internet o el repo es privado
+            if manual:
+                self.after(0, lambda: messagebox.showerror("Error", f"No se pudo comprobar si hay actualizaciones:\n{e}"))
+            pass # Falla silenciosamente en inicio si no hay internet o el repo es privado
 
     def show_update_popup(self, version, download_url):
         popup = ctk.CTkToplevel(self)

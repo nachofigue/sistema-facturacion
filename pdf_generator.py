@@ -154,6 +154,9 @@ def generar_pdf_factura(datos_factura, cae, vto_cae, nro_comprobante, output_pat
         if cliente_nombre == "Kilbel":
             cliente_nombre_display = "KILBEL S.A."
             domicilio_cliente = suc if suc else "Corrientes 2870 - Santa Fe, Santa Fe"
+        elif cliente_nombre == "Delca":
+            cliente_nombre_display = "PINTO HNOS S A"
+            domicilio_cliente = suc if suc else "Avda General Paz 5374 - Santa Fe, Santa Fe"
         else:
             cliente_nombre_display = cliente_nombre
             domicilio_cliente = suc if suc else "Colectora Oeste Ap Rosario Sta Fe Km 151 - Santo Tome, Santa Fe"
@@ -480,6 +483,9 @@ def generar_pdf_nota_credito(datos_factura, cae, vto_cae, nro_comprobante, outpu
         if cliente_nombre == "Kilbel":
             cliente_nombre_display = "KILBEL S.A."
             domicilio_cliente = suc if suc else "Corrientes 2870 - Santa Fe, Santa Fe"
+        elif cliente_nombre == "Delca":
+            cliente_nombre_display = "PINTO HNOS S A"
+            domicilio_cliente = suc if suc else "Avda General Paz 5374 - Santa Fe, Santa Fe"
         else:
             cliente_nombre_display = "SUPERMERCADO EL TUNEL SA S. A."
             domicilio_cliente = suc if suc else "Colectora Oeste Ap Rosario Sta Fe Km 151 - Santo Tome, Santa Fe"
